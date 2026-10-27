@@ -24,6 +24,7 @@ from litellm_usage import PERIODS, UsageClient, usage_table_rows
 from credentials import key_path, load_api_key, save_api_key
 from discovery import discover, endpoint_id, reconcile
 from hosts import DEFAULT_PATTERN, discover_hosts
+from settings import read_settings, settings_document
 from updater import VERSION, notice, perform_update
 
 
@@ -122,7 +123,8 @@ def title_banner(width=80):
 
 def normalize_key(key):
     return {'Q': 'q', 'й': 'q', 'Й': 'q', 'H': 'h', 'р': 'h', 'Р': 'h',
-            'L': 'l', 'д': 'l', 'Д': 'l', '−': '-'}.get(key, key)
+            'L': 'l', 'д': 'l', 'Д': 'l', 'S': 's', 'ы': 's', 'Ы': 's',
+            '−': '-'}.get(key, key)
 
 
 def parse_metrics(text):
@@ -529,8 +531,11 @@ def run_dashboard(screen, args, models, hosts, http, usage):
     next_hardware = 0
     embeddings, show_help = args.embeddings, args.explain
     usage_view, usage_period = args.usage, args.period
+    settings_view = args.settings
     usage_cache, usage_errors, usage_due = {}, {}, {}
     usage_pending = None
+    settings_cache, settings_errors, settings_pending = {}, {}, {}
+    next_settings = 0
     discovery_pending, discovery_state = {}, {}
     next_discovery = 0
     discovery_hosts = tuple(host['ip'] for host in hosts)
@@ -569,6 +574,25 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if usage_view and usage_pending is None and now >= usage_due.get(usage_period, 0):
                 usage_pending = (usage_period, pool.submit(usage.fetch, usage_period))
                 usage_due[usage_period] = now + 60
+            if settings_view:
+                for host in list(settings_pending):
+                    if settings_pending[host].done():
+                        future = settings_pending.pop(host)
+                        try:
+                            snapshot = future.result()
+                        except Exception as exc:
+                            settings_errors[host] = f'опрос: {exc}'
+                            continue
+                        if snapshot.get('error'):
+                            settings_errors[host] = snapshot['error']
+                        else:
+                            settings_cache[host] = (now, snapshot)
+                            settings_errors.pop(host, None)
+                if now >= next_settings:
+                    for host in hosts:
+                        if host['ip'] not in settings_pending:
+                            settings_pending[host['ip']] = pool.submit(read_settings, host['ip'], args.user)
+                    next_settings = now + 60
             if update_pending is not None and update_pending.done():
                 update_state = update_pending.result()
                 update_pending = None
@@ -637,7 +661,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             for y, line in enumerate(banner):
                 put(y, line, color((5, 6, 7, 8, 9, 10, 7, 7, 7)[y]) | curses.A_BOLD)
             header_height = len(banner)
-            mode = ('LITELLM · ' + PERIODS[usage_period][1] if usage_view else
+            mode = ('НАСТРОЙКИ МОДЕЛЕЙ · СТАТИЧНЫЕ' if settings_view else
+                    'LITELLM · ' + PERIODS[usage_period][1] if usage_view else
                     'EMBEDDING' if embeddings else 'ОБЫЧНЫЕ МОДЕЛИ')
             put(header_height, f' {mode} | v{VERSION} | {datetime.now():%H:%M:%S} | {args.interval}ms', color(7))
             update_notice = notice(update_state)
@@ -647,7 +672,9 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             table_width = width
             hardware_table = framed_table('КАЖДЫЙ SPARK · GPU/RAM · опрос не чаще 5s',
                                           hardware_rows(hardware, hosts, now), table_width)
-            if usage_view:
+            if settings_view:
+                document = settings_document(hosts, settings_cache, settings_errors, width, now)
+            elif usage_view:
                 cached = usage_cache.get(usage_period)
                 error = usage_errors.get(usage_period)
                 body = ['[1] 1 день   [2] 7 дней   [3] 30 дней   [4] год · UTC · обновление 60s']
@@ -694,10 +721,10 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                     except curses.error:
                         pass
             if show_help:
-                put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. TP-воркеры без API не создают отдельные карточки.')
+                put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [s] — статичные настройки запуска; секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            put(height - 2, ' [-/+] частота  [Tab] модели  [l] LiteLLM  [h] пояснения  [↑/↓ PgUp/PgDn] скролл  [q] выход', color(1))
+            put(height - 2, ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  [h] пояснения  [q] выход', color(1))
             screen.refresh()
             try:
                 key = normalize_key(screen.get_wch())
@@ -707,9 +734,14 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 return
             if key == '\t':
                 embeddings, offset = not embeddings, 0
-                usage_view = False
+                usage_view = settings_view = False
             elif key == 'l':
                 usage_view, offset = not usage_view, 0
+                settings_view = False
+            elif key == 's':
+                settings_view, offset = not settings_view, 0
+                usage_view = False
+                next_settings = 0
             elif usage_view and key in PERIODS:
                 usage_period, offset = key, 0
             elif key == 'h':
@@ -835,6 +867,7 @@ def main():
     parser.add_argument('--embeddings', action='store_true', help='start in embedding view')
     parser.add_argument('--explain', action='store_true', help='start with metric explanations')
     parser.add_argument('--usage', action='store_true', help='start in LiteLLM key activity view')
+    parser.add_argument('--settings', action='store_true', help='start in static model settings view')
     parser.add_argument('--period', choices=tuple(PERIODS), default='2', help='1=day, 2=week, 3=month, 4=year')
     parser.add_argument('--litellm-url', help='override the auto-detected LiteLLM address')
     parser.add_argument('--save-key', action='store_true', help='save LiteLLM key using hidden input, then exit')
@@ -897,6 +930,18 @@ def main():
     except ValueError as exc:
         print(f'Ошибка: {exc}', file=sys.stderr)
         return 1
+    if args.once and args.settings:
+        cache, errors = {}, {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:
+            futures = {host['ip']: pool.submit(read_settings, host['ip'], args.user) for host in hosts}
+            for ip, future in futures.items():
+                snapshot = future.result()
+                if snapshot.get('error'):
+                    errors[ip] = snapshot['error']
+                else:
+                    cache[ip] = (0, snapshot)
+        render(settings_document(hosts, cache, errors, 110, 0), False)
+        return 0
     litellm_url = find_litellm(hosts, args.litellm_url) if (args.usage or sys.stdout.isatty()) else None
     if args.once and args.usage and not litellm_url:
         print('Ошибка: LiteLLM не найден в tailnet. Укажите --litellm-url.', file=sys.stderr)
