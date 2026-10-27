@@ -16,7 +16,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = '1.0.2'
+VERSION = '1.0.3'
 REPO = 'FractalRainbowDot/vad-os-spark-monitor'
 ASSET = 'spark-monitor.pyz'
 MAX_DOWNLOAD = 16 * 1024 * 1024
