@@ -30,13 +30,19 @@ curl -fsSL https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-moni
 ```
 
 Скрипт скачивает последний релиз с GitHub, проверяет SHA-256, устанавливает
-`spark-monitor.pyz` в `~/.local/share/vad-os-spark-monitor` и создаёт команду
-`~/.local/bin/spark-monitor`. Ключ `.env` хранится рядом с `.pyz` и при
+`spark-monitor.pyz` в `~/.local/share/vad-os-spark-monitor` и создаёт исполняемый
+лончер `~/.local/bin/spark-monitor`. Ключ `.env` хранится рядом с `.pyz` и при
 обновлении не затрагивается. Скрипт можно сначала посмотреть:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.sh | less
 ```
+
+Если `~/.local/bin` отсутствует в `PATH`, установщик добавляет блок в
+`~/.bashrc`, `~/.zshrc` или `~/.profile` — в зависимости от текущей оболочки.
+После установки откройте новый терминал или выполните `source` для нужного
+файла. Чтобы не менять rc-файл, запустите установщик с
+`SPARK_MONITOR_NO_PATH_UPDATE=1`.
 
 После установки сохраните ключ и запустите монитор:
 

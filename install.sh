@@ -23,6 +23,23 @@ die() {
     exit 1
 }
 
+path_block() {
+    "$PYTHON" - "$1" <<'PY'
+import shlex
+import sys
+
+bin_dir = sys.argv[1]
+print('# >>> VAD-OS Spark Monitor >>>')
+print('spark_monitor_bin=' + shlex.quote(bin_dir))
+print('case ":$PATH:" in')
+print('    *":$spark_monitor_bin:"*) ;;')
+print('    *) PATH="$spark_monitor_bin:$PATH"; export PATH ;;')
+print('esac')
+print('unset spark_monitor_bin')
+print('# <<< VAD-OS Spark Monitor <<<')
+PY
+}
+
 command -v curl >/dev/null 2>&1 || die 'не найден curl'
 command -v "$PYTHON" >/dev/null 2>&1 || die "не найден $PYTHON"
 command -v uname >/dev/null 2>&1 || die 'не найден uname'
@@ -106,7 +123,37 @@ printf 'Команда: %s\n' "$launcher"
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
-    *) printf 'Добавьте в PATH: export PATH="%s:$PATH"\n' "$BIN_DIR" ;;
+    *)
+        if [ "${SPARK_MONITOR_NO_PATH_UPDATE:-0}" = '1' ]; then
+            printf 'Добавьте в PATH вручную:\n  export PATH="%s:$PATH"\n' "$BIN_DIR"
+        else
+            case "$(basename "${SHELL:-}")" in
+                zsh) rc="$HOME/.zshrc" ;;
+                bash)
+                    if [ "$(uname -s)" = 'Darwin' ]; then
+                        rc="$HOME/.bash_profile"
+                    else
+                        rc="$HOME/.bashrc"
+                    fi
+                    ;;
+                sh|dash) rc="$HOME/.profile" ;;
+                *) rc='' ;;
+            esac
+            if [ -n "$rc" ] && mkdir -p "$(dirname "$rc")" && touch "$rc"; then
+                if grep -Fq '# >>> VAD-OS Spark Monitor >>>' "$rc"; then
+                    printf 'PATH уже настроен в %s\n' "$rc"
+                elif block="$(path_block "$BIN_DIR")" && printf '\n%s\n' "$block" >> "$rc"; then
+                    printf 'PATH добавлен в %s\n' "$rc"
+                    printf 'Откройте новый терминал или выполните: source %s\n' "$rc"
+                else
+                    printf 'Не удалось изменить %s; добавьте вручную:\n' "$rc"
+                    printf '  export PATH="%s:$PATH"\n' "$BIN_DIR"
+                fi
+            else
+                printf 'Добавьте в PATH вручную:\n  export PATH="%s:$PATH"\n' "$BIN_DIR"
+            fi
+        fi
+        ;;
 esac
 
 if [ -s "$DATA_DIR/.env" ]; then
