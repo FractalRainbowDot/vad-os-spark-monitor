@@ -8,3 +8,4 @@ dist/
 
 .spark-monitor-update-*
 *.pyz.prev
+build/

@@ -21,5 +21,5 @@
 mkdir -p build
 cp __main__.py credentials.py litellm_usage.py discovery.py hosts.py updater.py README.md build/
 python3 -c "import zipapp; zipapp.create_archive('build', 'spark-monitor.pyz', interpreter='/usr/bin/env python3', compressed=True)"
-sha256sum spark-monitor.pyz > spark-monitor.pyz.sha256
+python3 -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path('spark-monitor.pyz').read_bytes()).hexdigest() + '  spark-monitor.pyz')" > spark-monitor.pyz.sha256
 ```
