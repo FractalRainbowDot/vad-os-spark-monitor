@@ -81,5 +81,60 @@ class ModelInfoTests(unittest.TestCase):
             client.model_info()
 
 
+class KeyAliasTests(unittest.TestCase):
+    def test_returns_current_key_alias(self):
+        client = FakeClient({'/key/info': {'info': {'key_alias': 'manana'}}})
+        self.assertEqual(client.key_alias(), 'manana')
+        self.assertEqual(client.calls, ['/key/info'])
+        # Read-only: catalog/per-key state stays untouched.
+        self.assertIsNone(client._catalog)
+        self.assertIsNone(client._personal_key)
+
+    def test_forbidden_key_info_returns_empty(self):
+        client = FakeClient({'/key/info': APIError(403)})
+        self.assertEqual(client.key_alias(), '')
+
+    def test_transport_error_returns_empty(self):
+        client = FakeClient({'/key/info': RuntimeError('нет соединения')})
+        self.assertEqual(client.key_alias(), '')
+
+    def test_key_hash_alias_returns_empty(self):
+        client = FakeClient({'/key/info': {'info': {'key_alias': 'key-hash-a1b2c3'}}})
+        self.assertEqual(client.key_alias(), '')
+
+    def test_empty_alias_returns_empty(self):
+        client = FakeClient({'/key/info': {'info': {'key_alias': '   '}}})
+        self.assertEqual(client.key_alias(), '')
+
+    def test_malformed_payloads_return_empty(self):
+        payloads = (
+            None,
+            [],
+            'not-a-dict',
+            {},
+            {'info': None},
+            {'info': []},
+            {'info': {}},
+            {'info': {'key_alias': None}},
+            {'info': {'key_alias': 42}},
+            {'info': {'key_alias': ['manana']}},
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                client = FakeClient({'/key/info': payload})
+                self.assertEqual(client.key_alias(), '')
+
+    def test_cleans_whitespace_and_control_characters(self):
+        client = FakeClient({'/key/info': {
+            'info': {'key_alias': '  manana\t\n\x00  team  '}}})
+        self.assertEqual(client.key_alias(), 'manana team')
+
+    def test_caps_alias_at_64_characters(self):
+        client = FakeClient({'/key/info': {'info': {'key_alias': 'a' * 100}}})
+        alias = client.key_alias()
+        self.assertEqual(alias, 'a' * 64)
+        self.assertEqual(len(alias), 64)
+
+
 if __name__ == '__main__':
     unittest.main()

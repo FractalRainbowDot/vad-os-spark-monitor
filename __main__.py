@@ -26,14 +26,15 @@ from discovery import discover, endpoint_id, reconcile
 from hosts import DEFAULT_PATTERN, discover_hosts
 from settings import read_settings, settings_document
 from updater import VERSION, notice, perform_update, should_recheck, version_badge
+from banner import TITLE, title_banner
+from preferences import MAX_DISPLAY_NAME, load_preferences, save_preferences
+from themes import THEME_NAMES, apply_theme, normalize_theme
 
 
 SAMPLE = re.compile(
     r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{.*\})?\s+'
     r'([-+]?(?:\d*\.?\d+(?:[eE][-+]?\d+)?|Inf|NaN))(?:\s|$)'
 )
-
-TITLE = 'VAD-OS Spark Monitor'
 
 # A release published while the monitor is running must still show its badge.
 UPDATE_CHECK_SECONDS = 300
@@ -65,69 +66,56 @@ except Exception as exc:
     result['memory_error'] = str(exc)
 print(json.dumps(result))
 '''
-HEADER_ART = (
-    '   .::::::::. .::::::::. .::::::::.',
-    '   : SPARK  : : SPARK  : : SPARK  :',
-    "   '::::::::' '::::::::' '::::::::'",
-    '        :          :          :',
-    "        '..........:..........'",
-    '',
-)
+MENU_WIDTH = 48
+MENU_ITEMS = 2
 
 
-BLOCK_FONT = {
-    ' ': ('00000', '00000', '00000', '00000', '00000'),
-    'V': ('10001', '10001', '10001', '01010', '00100'),
-    'A': ('01110', '11011', '11111', '11011', '11011'),
-    'D': ('11110', '11011', '11011', '11011', '11110'),
-    '-': ('00000', '00000', '11111', '00000', '00000'),
-    'O': ('01110', '11011', '11011', '11011', '01110'),
-    'S': ('01111', '11000', '01110', '00011', '11110'),
-    'P': ('11110', '11011', '11110', '11000', '11000'),
-    'R': ('11110', '11011', '11110', '11011', '11011'),
-    'K': ('11011', '11010', '11100', '11010', '11011'),
-    'M': ('11011', '11111', '11111', '11011', '11011'),
-    'N': ('11001', '11101', '11111', '11011', '11001'),
-    'I': ('11111', '00100', '00100', '00100', '11111'),
-    'T': ('11111', '00100', '00100', '00100', '00100'),
-}
+def resolve_display_name(custom_name, key_alias):
+    """Custom name wins, then the key alias, then the built-in title."""
+    for value in (custom_name, key_alias):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return TITLE
 
 
-def block_title(text):
-    pixels = ['0'.join(BLOCK_FONT[letter][row] for letter in text.upper())
-              for row in range(5)]
-    width = len(pixels[0]) + 1
-    lines = []
-    for y in range(6):
-        row = []
-        for x in range(width):
-            solid = y < 5 and x < width - 1 and pixels[y][x] == '1'
-            shadow = y > 0 and x > 0 and pixels[y - 1][x - 1] == '1'
-            row.append('█' if solid else '░' if shadow else ' ')
-        lines.append(''.join(row))
+def cycle_theme(current, step):
+    """Move through the canonical theme list, wrapping in both directions."""
+    theme = normalize_theme(current)
+    index = THEME_NAMES.index(theme) + int(step)
+    return THEME_NAMES[index % len(THEME_NAMES)]
+
+
+def _menu_row(text):
+    inner = MENU_WIDTH - 4
+    return '│ ' + text[:inner].ljust(inner) + ' │'
+
+
+def menu_lines(theme, display_name, selection, editing=False, input_text='', error=''):
+    """Return the popup as fixed-width lines, including its border."""
+    theme = normalize_theme(theme)
+    selection = 1 if editing else (0 if selection == 0 else 1)
+    marks = ['▶ ' if selection == 0 else '  ', '▶ ' if selection == 1 else '  ']
+    label = ' НАСТРОЙКИ '
+    lines = ['╭' + label + '─' * (MENU_WIDTH - 2 - len(label)) + '╮',
+             _menu_row(marks[0] + 'Тема: ' + theme),
+             _menu_row(marks[1] + 'Имя: ' + (input_text + '█' if editing
+                                             else str(display_name)))]
+    if error:
+        lines.append(_menu_row('Ошибка: ' + str(error)))
+    lines.append(_menu_row(''))
+    if editing:
+        lines.append(_menu_row('Enter — сохранить · Esc — отмена'))
+        lines.append(_menu_row('Ctrl+U — очистить · пусто = имя ключа'))
+    else:
+        lines.append(_menu_row('↑↓ выбор · ←→ тема · Enter · m/Esc'))
+    lines.append('╰' + '─' * (MENU_WIDTH - 2) + '╯')
     return lines
-
-
-def title_banner(width=80):
-    art = [line[3:] for line in HEADER_ART]
-    art_width = max(map(len, art))
-    title_x = art_width + 3
-    full = block_title(TITLE)
-    compact = block_title('VAD-OS')
-    brand = full if title_x + len(full[0]) <= width else compact
-    if title_x + len(brand[0]) > width:
-        brand = [TITLE]
-    labels = {row: line for row, line in enumerate(brand)}
-    if brand is compact:
-        labels[5] = TITLE
-    return [(line.ljust(title_x) + labels.get(row, ''))[:width]
-            for row, line in enumerate(art)]
 
 
 def normalize_key(key):
     return {'Q': 'q', 'й': 'q', 'Й': 'q', 'H': 'h', 'р': 'h', 'Р': 'h',
             'L': 'l', 'д': 'l', 'Д': 'l', 'S': 's', 'ы': 's', 'Ы': 's',
-            '−': '-'}.get(key, key)
+            'M': 'm', 'm': 'm', 'ь': 'm', 'Ь': 'm', '−': '-'}.get(key, key)
 
 
 def parse_metrics(text):
@@ -525,21 +513,26 @@ def table_rule_spans(line):
 
 
 def run_dashboard(screen, args, models, hosts, http, usage):
+    try:
+        preferences = load_preferences()
+    except (OSError, ValueError):
+        preferences = {}
+    theme = normalize_theme(preferences.get('theme'))
+    custom_name = preferences.get('display_name', '')
+    display_name = custom_name or TITLE
     if screen is not None:
         try:
             curses.curs_set(0)
         except curses.error:
             pass
         screen.timeout(50)
+        try:
+            screen.keypad(True)
+        except curses.error:
+            pass
         if curses.has_colors():
             curses.start_color()
-            for pair, fg in enumerate((curses.COLOR_CYAN, curses.COLOR_GREEN,
-                                       curses.COLOR_YELLOW, curses.COLOR_RED), 1):
-                curses.init_pair(pair, fg, curses.COLOR_BLACK)
-            for pair, fg in ((5, 226), (6, 220), (7, 214),
-                             (8, 208), (9, 172), (10, 136)):
-                curses.init_pair(pair, fg if curses.COLORS >= 256 else curses.COLOR_YELLOW,
-                                 curses.COLOR_BLACK)
+            apply_theme(theme)
     next_poll, offset = 0, 0
     hardware, probes = {}, {}
     next_hardware = 0
@@ -560,11 +553,26 @@ def run_dashboard(screen, args, models, hosts, http, usage):
     update_pending = None
     update_state = {}
     next_update = 0
+    key_alias, alias_pending = '', None
+    menu_open, menu_selection, editing = False, 0, False
+    menu_input, menu_error = '', ''
     deadline = time.monotonic() + 10
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool, contextlib.ExitStack() as shutdown:
         shutdown.callback(usage.close)
+        if screen is not None:
+            alias_pending = pool.submit(usage.key_alias)
         while True:
             now = time.monotonic()
+            if alias_pending is not None and alias_pending.done():
+                future, alias_pending = alias_pending, None
+                try:
+                    alias = future.result()
+                except Exception:
+                    alias = ''
+                if isinstance(alias, str) and alias.strip():
+                    key_alias = alias.strip()
+                    if not custom_name:
+                        display_name = key_alias
             if not args.no_discovery:
                 for host in list(discovery_pending):
                     if discovery_pending[host].done():
@@ -694,7 +702,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 screen.attroff(color(9))
             except curses.error:
                 pass
-            banner = title_banner(width)
+            banner = title_banner(display_name, width)
             for y, line in enumerate(banner):
                 put(y, line, color((5, 6, 7, 8, 9, 10, 7, 7, 7)[y]) | curses.A_BOLD)
             header_height = len(banner)
@@ -779,20 +787,101 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                         pass
             if show_help:
                 if settings_view:
-                    put(height - 5, ' [Tab] — вкладка провайдеры/Spark; [s] — закрыть настройки; секреты скрыты.')
+                    put(height - 5, ' [Tab] — вкладка провайдеры/Spark; [m] — меню темы и имени; '
+                                    '[s] — закрыть настройки; секреты скрыты.')
                 else:
-                    put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [s] — статичные настройки запуска; секреты скрыты.')
+                    put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [m] — меню темы и имени; '
+                                    '[s] — статичные настройки запуска; секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            footer = (' [-/+] частота  [Tab] провайдеры/Spark  [s] назад  [l] LiteLLM  '
+            footer = (' [-/+] частота  [Tab] провайдеры/Spark  [s] назад  [l] LiteLLM  [m] меню  '
                       '[h] пояснения  [q] выход' if settings_view else
-                      ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  '
+                      ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  [m] меню  '
                       '[h] пояснения  [q] выход')
             put(height - 2, footer, color(1))
+            if menu_open:
+                popup = menu_lines(theme, display_name, menu_selection,
+                                   editing, menu_input, menu_error)
+                popup_x = max(2, min((terminal_width - MENU_WIDTH) // 2, terminal_width - 3))
+                popup_y = max(1, min((terminal_height - len(popup)) // 2, terminal_height - 2))
+                for row, line in enumerate(popup):
+                    y = popup_y + row
+                    if y > terminal_height - 2:
+                        break
+                    if row in (0, len(popup) - 1):
+                        attr = color(9) | curses.A_BOLD
+                    elif line.startswith('│ Ошибка:'):
+                        attr = color(4) | curses.A_BOLD
+                    elif '▶' in line:
+                        attr = color(3) | curses.A_BOLD
+                    elif row >= len(popup) - 2:
+                        attr = color(1)
+                    else:
+                        attr = color(7)
+                    try:
+                        screen.addnstr(y, popup_x, line,
+                                       max(1, terminal_width - popup_x - 1), attr)
+                    except curses.error:
+                        pass
             screen.refresh()
             try:
-                key = normalize_key(screen.get_wch())
+                raw_key = screen.get_wch()
             except curses.error:
+                continue
+            key = normalize_key(raw_key)
+            if menu_open:
+                if editing:
+                    # Name editing must preserve typed case and characters;
+                    # normalize_key is only for dashboard commands.
+                    if raw_key in ('\x1b', 27):
+                        editing, menu_input, menu_error = False, '', ''
+                    elif raw_key in ('\n', '\r', curses.KEY_ENTER):
+                        custom_name = menu_input.strip()
+                        display_name = resolve_display_name(custom_name, key_alias)
+                        try:
+                            save_preferences({'theme': theme, 'display_name': custom_name})
+                            menu_error = ''
+                        except (OSError, ValueError) as exc:
+                            menu_error = str(exc)
+                        editing, menu_input = False, ''
+                    elif raw_key == '\x15':
+                        menu_input = ''
+                    elif raw_key in ('\x7f', '\b', curses.KEY_BACKSPACE):
+                        menu_input = menu_input[:-1]
+                    elif isinstance(raw_key, str) and len(raw_key) == 1 and raw_key.isprintable():
+                        if len(menu_input) < MAX_DISPLAY_NAME:
+                            menu_input += raw_key
+                else:
+                    if key in ('m', '\x1b', 27):
+                        menu_open, menu_error = False, ''
+                    elif key == curses.KEY_UP:
+                        menu_selection = (menu_selection - 1) % MENU_ITEMS
+                    elif key == curses.KEY_DOWN:
+                        menu_selection = (menu_selection + 1) % MENU_ITEMS
+                    elif key in (curses.KEY_LEFT, curses.KEY_RIGHT):
+                        step = -1 if key == curses.KEY_LEFT else 1
+                        theme = cycle_theme(theme, step)
+                        apply_theme(theme)
+                        try:
+                            save_preferences({'theme': theme, 'display_name': custom_name})
+                            menu_error = ''
+                        except (OSError, ValueError) as exc:
+                            menu_error = str(exc)
+                    elif key in ('\n', '\r', curses.KEY_ENTER):
+                        if menu_selection == 0:
+                            theme = cycle_theme(theme, 1)
+                            apply_theme(theme)
+                            try:
+                                save_preferences({'theme': theme, 'display_name': custom_name})
+                                menu_error = ''
+                            except (OSError, ValueError) as exc:
+                                menu_error = str(exc)
+                        else:
+                            editing, menu_input, menu_error = True, custom_name, ''
+                continue
+            if key == 'm':
+                menu_open, menu_selection, editing = True, 0, False
+                menu_input, menu_error = '', ''
                 continue
             if key == 'q':
                 return

@@ -181,6 +181,20 @@ class UsageClient:
         self._catalog = keys
         return keys
 
+    def key_alias(self):
+        """Read-only alias of the current key for the header, or '' if unavailable."""
+        try:
+            payload = self.get('/key/info')
+        except (APIError, RuntimeError):
+            # Missing permission, key, URL, or a timeout must not break the TUI.
+            return ''
+        info = payload.get('info') if isinstance(payload, dict) else None
+        alias = info.get('key_alias') if isinstance(info, dict) else None
+        if not isinstance(alias, str) or not named_key(alias):
+            return ''
+        alias = re.sub(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]', '', alias)
+        return re.sub(r'\s+', ' ', alias).strip()[:64].strip()
+
     def model_info(self):
         """Read-only LiteLLM provider/model route configuration."""
         routes = ('/model/info', '/v1/model/info')
