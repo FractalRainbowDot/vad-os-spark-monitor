@@ -544,8 +544,9 @@ def run_dashboard(screen, args, models, hosts, http, usage):
     hardware, probes = {}, {}
     next_hardware = 0
     embeddings, show_help = args.embeddings, args.explain
-    usage_view, usage_period = args.usage, args.period
+    usage_view, usage_period = args.usage and not args.settings, args.period
     settings_view = args.settings
+    settings_tab = 'providers'
     usage_cache, usage_errors, usage_due = {}, {}, {}
     usage_pending = None
     settings_cache, settings_errors, settings_pending = {}, {}, {}
@@ -589,25 +590,24 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if usage_view and usage_pending is None and now >= usage_due.get(usage_period, 0):
                 usage_pending = (usage_period, pool.submit(usage.fetch, usage_period))
                 usage_due[usage_period] = now + 60
-            if settings_view:
-                for host in list(settings_pending):
-                    if settings_pending[host].done():
-                        future = settings_pending.pop(host)
-                        try:
-                            snapshot = future.result()
-                        except Exception as exc:
-                            settings_errors[host] = f'опрос: {exc}'
-                            continue
-                        if snapshot.get('error'):
-                            settings_errors[host] = snapshot['error']
-                        else:
-                            settings_cache[host] = (now, snapshot)
-                            settings_errors.pop(host, None)
-                if now >= next_settings:
-                    for host in hosts:
-                        if host['ip'] not in settings_pending:
-                            settings_pending[host['ip']] = pool.submit(read_settings, host['ip'], args.user)
-                    next_settings = now + 60
+            for host in list(settings_pending):
+                if settings_pending[host].done():
+                    future = settings_pending.pop(host)
+                    try:
+                        snapshot = future.result()
+                    except Exception as exc:
+                        settings_errors[host] = f'опрос: {exc}'
+                        continue
+                    if snapshot.get('error'):
+                        settings_errors[host] = snapshot['error']
+                    else:
+                        settings_cache[host] = (now, snapshot)
+                        settings_errors.pop(host, None)
+            if settings_view and settings_tab == 'sparks' and now >= next_settings:
+                for host in hosts:
+                    if host['ip'] not in settings_pending:
+                        settings_pending[host['ip']] = pool.submit(read_settings, host['ip'], args.user)
+                next_settings = now + 60
             if provider_pending is not None and provider_pending.done():
                 future = provider_pending
                 provider_pending = None
@@ -616,7 +616,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                     provider_error = ''
                 except Exception as exc:
                     provider_error = str(exc)
-            if settings_view and provider_pending is None and now >= next_provider:
+            if (settings_view and settings_tab == 'providers' and provider_pending is None
+                    and now >= next_provider):
                 provider_pending = pool.submit(usage.model_info)
                 next_provider = now + 60
             if update_pending is not None and update_pending.done():
@@ -697,7 +698,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             for y, line in enumerate(banner):
                 put(y, line, color((5, 6, 7, 8, 9, 10, 7, 7, 7)[y]) | curses.A_BOLD)
             header_height = len(banner)
-            mode = ('НАСТРОЙКИ МОДЕЛЕЙ · СТАТИЧНЫЕ' if settings_view else
+            mode = ('НАСТРОЙКИ · ПРОВАЙДЕРЫ' if settings_view and settings_tab == 'providers' else
+                    'НАСТРОЙКИ · SPARK' if settings_view else
                     'LITELLM · ' + PERIODS[usage_period][1] if usage_view else
                     'EMBEDDING' if embeddings else 'ОБЫЧНЫЕ МОДЕЛИ')
             badge = version_badge(update_state)
@@ -719,12 +721,16 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             table_width = width
             hardware_table = framed_table('КАЖДЫЙ SPARK · GPU/RAM · опрос не чаще 5s',
                                           hardware_rows(hardware, hosts, now), table_width)
-            if settings_view:
+            if settings_view and settings_tab == 'providers':
                 provider_data = provider_cache[1] if provider_cache else None
                 document = settings_document(hosts, settings_cache, settings_errors, width, now,
                                              providers=provider_data,
                                              provider_error=provider_error,
-                                             include_provider=True)
+                                             include_provider=True,
+                                             include_sparks=False)
+            elif settings_view:
+                document = settings_document(hosts, settings_cache, settings_errors, width, now,
+                                             include_sparks=True)
             elif usage_view:
                 cached = usage_cache.get(usage_period)
                 error = usage_errors.get(usage_period)
@@ -772,10 +778,17 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                     except curses.error:
                         pass
             if show_help:
-                put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [s] — статичные настройки запуска; секреты скрыты.')
+                if settings_view:
+                    put(height - 5, ' [Tab] — вкладка провайдеры/Spark; [s] — закрыть настройки; секреты скрыты.')
+                else:
+                    put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [s] — статичные настройки запуска; секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            put(height - 2, ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  [h] пояснения  [q] выход', color(1))
+            footer = (' [-/+] частота  [Tab] провайдеры/Spark  [s] назад  [l] LiteLLM  '
+                      '[h] пояснения  [q] выход' if settings_view else
+                      ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  '
+                      '[h] пояснения  [q] выход')
+            put(height - 2, footer, color(1))
             screen.refresh()
             try:
                 key = normalize_key(screen.get_wch())
@@ -784,8 +797,16 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if key == 'q':
                 return
             if key == '\t':
-                embeddings, offset = not embeddings, 0
-                usage_view = settings_view = False
+                if settings_view:
+                    settings_tab = ('sparks' if settings_tab == 'providers' else 'providers')
+                    offset = 0
+                    if settings_tab == 'providers':
+                        next_provider = 0
+                    else:
+                        next_settings = 0
+                else:
+                    embeddings, offset = not embeddings, 0
+                    usage_view = settings_view = False
             elif key == 'l':
                 usage_view, offset = not usage_view, 0
                 settings_view = False
@@ -794,6 +815,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 usage_view = False
                 next_settings = 0
                 next_provider = 0
+                if settings_view:
+                    settings_tab = 'providers'
             elif usage_view and key in PERIODS:
                 usage_period, offset = key, 0
             elif key == 'h':
@@ -920,7 +943,8 @@ def main():
     parser.add_argument('--embeddings', action='store_true', help='start in embedding view')
     parser.add_argument('--explain', action='store_true', help='start with metric explanations')
     parser.add_argument('--usage', action='store_true', help='start in LiteLLM key activity view')
-    parser.add_argument('--settings', action='store_true', help='start in static model settings view')
+    parser.add_argument('--settings', action='store_true',
+                        help='start in static settings view on the providers tab')
     parser.add_argument('--period', choices=tuple(PERIODS), default='2', help='1=day, 2=week, 3=month, 4=year')
     parser.add_argument('--litellm-url', help='override the auto-detected LiteLLM address')
     parser.add_argument('--save-key', action='store_true', help='save LiteLLM key using hidden input, then exit')
@@ -1005,9 +1029,10 @@ def main():
                 client.close()
         else:
             provider_error = 'LiteLLM не найден в tailnet'
+        # Non-interactive snapshot has no tabs: print both sections.
         render(settings_document(hosts, cache, errors, 110, 0,
                                  providers=providers, provider_error=provider_error,
-                                 include_provider=True), False)
+                                 include_provider=True, include_sparks=True), False)
         return 0
     litellm_url = find_litellm(hosts, args.litellm_url) if (args.usage or sys.stdout.isatty()) else None
     if args.once and args.usage and not litellm_url:

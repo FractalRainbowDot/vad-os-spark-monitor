@@ -144,6 +144,27 @@ class SettingsTests(unittest.TestCase):
         self.assertIn('ПРОВАЙДЕР · openai/DeepSeek-V4.1-Flash-1017', text)
         self.assertIn('╭ spark-a · модели: 2', text)
 
+    def test_provider_only_document_omits_spark_tables(self):
+        cache = {'192.0.2.1': (0, {'entries': settings.entries(SAMPLE), 'error': None})}
+        hosts = [{'name': 'spark-a', 'ip': '192.0.2.1'}]
+        text = '\n'.join(settings.settings_document(
+            hosts, cache, {}, 110, 0, providers=[PROVIDER],
+            provider_error='', include_provider=True, include_sparks=False))
+        self.assertIn('ПРОВАЙДЕР · openai/DeepSeek-V4.1-Flash-1017', text)
+        self.assertNotIn('spark-a', text)
+        self.assertNotIn('ВСЕ ФЛАГИ ЗАПУСКА', text)
+        self.assertNotIn('Загрузка настроек', text)
+
+    def test_spark_only_document_omits_provider_tables(self):
+        cache = {'192.0.2.1': (0, {'entries': settings.entries(SAMPLE), 'error': None})}
+        hosts = [{'name': 'spark-a', 'ip': '192.0.2.1'}]
+        text = '\n'.join(settings.settings_document(
+            hosts, cache, {}, 110, 0, providers=[PROVIDER],
+            provider_error='', include_provider=False, include_sparks=True))
+        self.assertIn('╭ spark-a · модели: 2', text)
+        self.assertNotIn('ПРОВАЙДЕР ·', text)
+        self.assertNotIn('ВСЕ ПАРАМЕТРЫ ПРОВАЙДЕРА', text)
+
     def test_read_settings_error_is_contained(self):
         with patch('settings._run', side_effect=RuntimeError('down')):
             snapshot = settings.read_settings('192.0.2.1', 'nvidia')

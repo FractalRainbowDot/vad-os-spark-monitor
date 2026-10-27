@@ -637,19 +637,20 @@ def settings_table(host, snapshot, width, now=None):
 
 
 def settings_document(hosts, cache, errors, width, now, providers=None,
-                      provider_error='', include_provider=False):
+                      provider_error='', include_provider=False, include_sparks=True):
     lines = []
     if include_provider:
         lines.extend(provider_document(providers, provider_error, width))
-    for host in hosts:
-        if host['ip'] in errors:
-            lines.extend(framed_table(host['name'], ['НЕТ СВЕЖИХ ДАННЫХ: ' + errors[host['ip']]], width))
-        elif host['ip'] not in cache:
-            lines.extend(framed_table(host['name'], ['Загрузка настроек…'], width))
-        else:
-            timestamp, snapshot = cache[host['ip']]
-            lines.extend(settings_table(host['name'], snapshot, width, now))
-        lines.append('')
+    if include_sparks:
+        for host in hosts:
+            if host['ip'] in errors:
+                lines.extend(framed_table(host['name'], ['НЕТ СВЕЖИХ ДАННЫХ: ' + errors[host['ip']]], width))
+            elif host['ip'] not in cache:
+                lines.extend(framed_table(host['name'], ['Загрузка настроек…'], width))
+            else:
+                timestamp, snapshot = cache[host['ip']]
+                lines.extend(settings_table(host['name'], snapshot, width, now))
+            lines.append('')
     return lines
 
 
