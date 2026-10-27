@@ -20,6 +20,34 @@ tailnet через локальный клиент Tailscale и определя
 python3 -c "import curses; print('OK')"
 ```
 
+## Установка одной командой
+
+На Linux и macOS с Python 3.10+ можно установить или обновить монитор одной
+командой:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.sh | sh
+```
+
+Скрипт скачивает последний релиз с GitHub, проверяет SHA-256, устанавливает
+`spark-monitor.pyz` в `~/.local/share/vad-os-spark-monitor` и создаёт команду
+`~/.local/bin/spark-monitor`. Ключ `.env` хранится рядом с `.pyz` и при
+обновлении не затрагивается. Скрипт можно сначала посмотреть:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.sh | less
+```
+
+После установки сохраните ключ и запустите монитор:
+
+```bash
+spark-monitor --save-key
+spark-monitor
+```
+
+Если `~/.local/bin` отсутствует в `PATH`, скрипт покажет нужную строку
+`export PATH=...`. Для macOS без Python используйте ZIP-сборку ниже.
+
 ## Установка и запуск
 
 1. Сохраните `spark-monitor.pyz` в любую папку и откройте в ней терминал.
@@ -78,6 +106,11 @@ python3 spark-monitor.pyz --no-discovery --host SERVER_IP --remote-port 8000
 скачивает `spark-monitor.pyz`, проверяет SHA-256 и заменяет файл, сохраняя
 резервную копию `.prev`. Ключ и `.env` не затрагиваются. Для применения
 обновления перезапустите монитор.
+
+Рядом с номером версии появляется значок `↑ vX.Y.Z` и строка с просьбой
+перезапустить монитор. Значок остаётся видимым до перезапуска, поэтому
+обновление не потеряется. Если значка нет — установлена последняя версия
+или проверка обновлений отключена.
 
 ```bash
 python3 spark-monitor.pyz --check-update   # проверить и обновить сейчас

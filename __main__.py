@@ -25,7 +25,7 @@ from credentials import key_path, load_api_key, save_api_key
 from discovery import discover, endpoint_id, reconcile
 from hosts import DEFAULT_PATTERN, discover_hosts
 from settings import read_settings, settings_document
-from updater import VERSION, notice, perform_update
+from updater import VERSION, notice, perform_update, version_badge
 
 
 SAMPLE = re.compile(
@@ -664,7 +664,18 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             mode = ('НАСТРОЙКИ МОДЕЛЕЙ · СТАТИЧНЫЕ' if settings_view else
                     'LITELLM · ' + PERIODS[usage_period][1] if usage_view else
                     'EMBEDDING' if embeddings else 'ОБЫЧНЫЕ МОДЕЛИ')
-            put(header_height, f' {mode} | v{VERSION} | {datetime.now():%H:%M:%S} | {args.interval}ms', color(7))
+            badge = version_badge(update_state)
+            version_prefix = f' {mode} | v{VERSION}'
+            header = (version_prefix + ((' ' + badge) if badge else '') +
+                      f' | {datetime.now():%H:%M:%S} | {args.interval}ms')
+            put(header_height, header, color(7))
+            if badge and len(version_prefix) < width:
+                try:
+                    screen.addnstr(header_height + 1, 2 + len(version_prefix),
+                                   ' ' + badge, width - len(version_prefix),
+                                   color(3) | curses.A_BOLD)
+                except curses.error:
+                    pass
             update_notice = notice(update_state)
             if update_notice:
                 header_height += 1

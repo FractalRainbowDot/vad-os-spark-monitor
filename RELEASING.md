@@ -10,6 +10,7 @@
 5. Приложите к релизу:
    - `spark-monitor.pyz`;
    - `spark-monitor.pyz.sha256` — строка `<sha256>  spark-monitor.pyz`;
+   - `install.sh` — установщик для `curl | sh`;
    - при необходимости обновлённый macOS ZIP.
 
 Клиенты скачивают только asset `spark-monitor.pyz`, проверяют SHA-256 и

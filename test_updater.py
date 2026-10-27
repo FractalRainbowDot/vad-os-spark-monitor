@@ -31,6 +31,15 @@ class VersionTests(unittest.TestCase):
         self.assertIsNone(updater.notice({'status': 'current'}))
         self.assertIsNone(updater.notice({'status': 'error'}))
 
+    def test_version_badge_for_new_release_only(self):
+        self.assertEqual(updater.version_badge({'status': 'updated', 'version': '2.0.0'}),
+                         '↑ v2.0.0')
+        self.assertEqual(updater.version_badge({'status': 'available', 'version': 'v2.0.0'}),
+                         '↑ v2.0.0')
+        self.assertEqual(updater.version_badge({'status': 'current'}), '')
+        self.assertEqual(updater.version_badge({'status': 'error'}), '')
+        self.assertEqual(updater.version_badge(None), '')
+
 
 class DownloadTests(unittest.TestCase):
     def test_verified_download(self):

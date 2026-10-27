@@ -16,7 +16,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 REPO = 'FractalRainbowDot/vad-os-spark-monitor'
 ASSET = 'spark-monitor.pyz'
 MAX_DOWNLOAD = 16 * 1024 * 1024
@@ -163,3 +163,14 @@ def notice(state):
     if status == 'available':
         return f"Доступна версия {state['version']} · обновление не установлено"
     return None
+
+
+def version_badge(state):
+    """Short marker next to the running version, or an empty string."""
+    status = (state or {}).get('status')
+    if status not in ('updated', 'available'):
+        return ''
+    version = str((state or {}).get('version') or '').lstrip('v')
+    if not version:
+        return ''
+    return '↑ v' + version
