@@ -337,8 +337,19 @@ def model_metric_rows(model):
     order[index:index] = ['Отклонено']
     index = order.index('ЗАДЕРЖКИ · СРЕДНИЕ ПО НАБЛЮДЕНИЯМ В ОКНЕ')
     order[index:index] = ['Скорость Prefill', 'Скорость Decode']
-    return [(name, '', '') if name in sections else
-            (name, by_name.get(name, (name, '—', ''))[1], notes[name]) for name in order]
+    fallback = {'Вместимость': model.get('capacity'), 'Потоки процесса': model.get('threads')}
+    result = []
+    for name in order:
+        if name in sections:
+            result.append((name, '', ''))
+            continue
+        value = by_name.get(name, (name, '—', ''))[1]
+        # gb10 gauges report 'нет данных' when /metrics lacks the field, so both
+        # that and the vLLM placeholder '—' are treatable as missing.
+        if value in ('—', 'нет данных') and fallback.get(name) is not None:
+            value = str(fallback[name])
+        result.append((name, value, notes[name]))
+    return result
 
 
 def model_table_rows(model, show_help, now):
@@ -536,6 +547,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
     usage_pending = None
     settings_cache, settings_errors, settings_pending = {}, {}, {}
     next_settings = 0
+    provider_cache, provider_error, provider_pending = None, '', None
+    next_provider = 0
     discovery_pending, discovery_state = {}, {}
     next_discovery = 0
     discovery_hosts = tuple(host['ip'] for host in hosts)
@@ -593,6 +606,17 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                         if host['ip'] not in settings_pending:
                             settings_pending[host['ip']] = pool.submit(read_settings, host['ip'], args.user)
                     next_settings = now + 60
+            if provider_pending is not None and provider_pending.done():
+                future = provider_pending
+                provider_pending = None
+                try:
+                    provider_cache = (now, future.result())
+                    provider_error = ''
+                except Exception as exc:
+                    provider_error = str(exc)
+            if settings_view and provider_pending is None and now >= next_provider:
+                provider_pending = pool.submit(usage.model_info)
+                next_provider = now + 60
             if update_pending is not None and update_pending.done():
                 update_state = update_pending.result()
                 update_pending = None
@@ -684,7 +708,11 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             hardware_table = framed_table('КАЖДЫЙ SPARK · GPU/RAM · опрос не чаще 5s',
                                           hardware_rows(hardware, hosts, now), table_width)
             if settings_view:
-                document = settings_document(hosts, settings_cache, settings_errors, width, now)
+                provider_data = provider_cache[1] if provider_cache else None
+                document = settings_document(hosts, settings_cache, settings_errors, width, now,
+                                             providers=provider_data,
+                                             provider_error=provider_error,
+                                             include_provider=True)
             elif usage_view:
                 cached = usage_cache.get(usage_period)
                 error = usage_errors.get(usage_period)
@@ -753,6 +781,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 settings_view, offset = not settings_view, 0
                 usage_view = False
                 next_settings = 0
+                next_provider = 0
             elif usage_view and key in PERIODS:
                 usage_period, offset = key, 0
             elif key == 'h':
@@ -810,6 +839,7 @@ def create_model(descriptor, user, automatic=False, host_label=None):
             'kind': descriptor['kind'], 'host': descriptor['host'],
             'automatic': automatic, 'endpoint': endpoint_id(descriptor),
             'identity': (descriptor['name'], descriptor['kind']),
+            'capacity': descriptor.get('capacity'), 'threads': descriptor.get('threads'),
             'tunnel': tunnel, 'errors': errors,
             'url': f'http://127.0.0.1:{local_port}/metrics',
             'history': History(), 'values': {}, 'pending': None,
@@ -951,7 +981,21 @@ def main():
                     errors[ip] = snapshot['error']
                 else:
                     cache[ip] = (0, snapshot)
-        render(settings_document(hosts, cache, errors, 110, 0), False)
+        providers, provider_error = None, ''
+        litellm_url = find_litellm(hosts, args.litellm_url)
+        if litellm_url:
+            client = UsageClient(litellm_url, api_key)
+            try:
+                providers = client.model_info()
+            except Exception as exc:
+                provider_error = str(exc)
+            finally:
+                client.close()
+        else:
+            provider_error = 'LiteLLM не найден в tailnet'
+        render(settings_document(hosts, cache, errors, 110, 0,
+                                 providers=providers, provider_error=provider_error,
+                                 include_provider=True), False)
         return 0
     litellm_url = find_litellm(hosts, args.litellm_url) if (args.usage or sys.stdout.isatty()) else None
     if args.once and args.usage and not litellm_url:

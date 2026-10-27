@@ -43,6 +43,46 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIs(self.models[0], model)
         self.assertEqual(len(self.created), 1)
 
+    def test_process_metadata_refreshes_without_replacing_tunnel(self):
+        self.apply([dict(descriptor(), capacity=8, threads=60)])
+        model = self.models[0]
+        self.apply([dict(descriptor(), capacity=8, threads=61)])
+        self.assertIs(self.models[0], model)
+        self.assertEqual(model['capacity'], 8)
+        self.assertEqual(model['threads'], 61)
+        self.assertEqual(len(self.created), 1)
+
+    def test_probe_miss_keeps_last_process_metadata(self):
+        self.apply([dict(descriptor(), capacity=8, threads=60)])
+        model = self.models[0]
+        self.apply([descriptor()])
+        self.assertIs(self.models[0], model)
+        self.assertEqual(self.models[0]['capacity'], 8)
+        self.assertEqual(self.models[0]['threads'], 60)
+
+    def test_create_failure_keeps_old_model_and_retries_later(self):
+        self.apply([descriptor('old')])
+        model = self.models[0]
+        model['values'] = {'old-metric': 123}
+
+        def failing(item):
+            if item['name'] == 'replacement':
+                raise RuntimeError('ssh unavailable')
+            return self.create(item)
+
+        reconcile(self.models, '192.0.2.10', dict(models=[descriptor('replacement')]),
+                  failing, self.closed.append)
+        self.assertIs(self.models[0], model)
+        self.assertEqual(model['name'], 'old')
+        self.assertEqual(model['values'], {'old-metric': 123})
+        self.assertEqual(self.closed, [])
+        self.assertIn('НЕТ СВЕЖИХ', model['status'])
+        self.assertTrue(model['ready'])
+
+        self.apply([descriptor('replacement')])
+        self.assertEqual(self.models[0]['name'], 'replacement')
+        self.assertEqual(len(self.closed), 1)
+
     def test_replacement_on_same_port_resets_state(self):
         self.apply([descriptor('old')])
         self.models[0]['values'] = {'old-metric': 123}
@@ -98,7 +138,11 @@ class DiscoveryTests(unittest.TestCase):
                     return io.BytesIO(b'vllm:num_requests_running{model_name="new"} 0\n')
                 name = 'Qwen/Qwen3-Embedding-8B' if ':8001/' in url else 'New/Model'
                 return io.BytesIO(json.dumps({'data': [{'id': name}]}).encode())
-        process = SimpleNamespace(read_bytes=lambda: b'vllm serve New/Model --port 8123')
+        process = SimpleNamespace(
+            read_bytes=lambda: b'vllm serve New/Model --port 8123',
+            parent=SimpleNamespace(joinpath=lambda name: SimpleNamespace(
+                read_text=lambda **kwargs: 'Name:\tvllm\nThreads:\t42\n')),
+        )
         out = io.StringIO()
         with patch('subprocess.run', run), patch('urllib.request.build_opener', return_value=HTTP()), \
              patch('pathlib.Path.glob', return_value=[process]), contextlib.redirect_stdout(out):
@@ -135,6 +179,43 @@ class DiscoveryTests(unittest.TestCase):
         self.assertFalse(any('45789' in url for url in requested))
         self.assertEqual(result['models'][0]['port'], 8123)
 
+    def test_process_metadata_covers_all_ports_and_default_port(self):
+        def process(command, threads):
+            return SimpleNamespace(
+                read_bytes=lambda: command.encode(),
+                parent=SimpleNamespace(joinpath=lambda name: SimpleNamespace(
+                    read_text=lambda **kwargs: f'Name:\tvllm\nThreads:\t{threads}\n')),
+            )
+        processes = [
+            process('vllm serve A --port 8123 --metrics-port 8124 '
+                    '--http-port 8125 --max-num-seqs 7', 42),
+            process('vllm serve B --max-batch 3', 9),
+        ]
+        def run(args, **kwargs):
+            if args[0] == 'ss':
+                text = ''.join(f'LISTEN 0 128 127.0.0.1:{port} 0.0.0.0:*\n'
+                               for port in (8000, 8123, 8124, 8125))
+                return SimpleNamespace(returncode=0, stdout=text)
+            return SimpleNamespace(returncode=0, stdout='')
+        class HTTP:
+            def open(self, url, **kwargs):
+                if url.endswith('/metrics'):
+                    return io.BytesIO(b'vllm:num_requests_running 0\n')
+                port = url.split(':')[2].split('/')[0]
+                return io.BytesIO(json.dumps({'data': [{'id': 'model-' + port}]}).encode())
+        out = io.StringIO()
+        with patch('subprocess.run', run), patch('urllib.request.build_opener', return_value=HTTP()), \
+             patch('pathlib.Path.glob', return_value=processes), contextlib.redirect_stdout(out):
+            exec(PROBE, {})
+        result = json.loads(out.getvalue())
+        metadata = {model['port']: (model.get('capacity'), model.get('threads'))
+                    for model in result['models']}
+        self.assertEqual(set(metadata), {8000, 8123, 8124, 8125})
+        self.assertEqual(metadata[8123], (7, 42))
+        self.assertEqual(metadata[8124], (7, 42))
+        self.assertEqual(metadata[8125], (7, 42))
+        self.assertEqual(metadata[8000], (3, 9))
+
     def test_discover_rejects_bad_remote_forward_address(self):
         data = {'models': [dict(descriptor(), address='evil:host')], 'docker_ok': True}
         with patch('subprocess.run', return_value=SimpleNamespace(returncode=0, stdout=json.dumps(data))):
@@ -146,6 +227,29 @@ class DiscoveryTests(unittest.TestCase):
         a, b = [monitor.model_metric_rows(dict(kind=k, values={}, history=monitor.History()))
                 for k in ('gb10', 'vllm')]
         self.assertEqual([(n, note) for n, _, note in a], [(n, note) for n, _, note in b])
+
+    def test_vllm_static_capacity_and_threads_fill_missing_metrics(self):
+        rows = monitor.model_metric_rows(dict(kind='vllm', values={},
+                                              history=monitor.History(),
+                                              capacity=8, threads=60))
+        values = {name: value for name, value, _ in rows}
+        self.assertEqual(values['Вместимость'], '8')
+        self.assertEqual(values['Потоки процесса'], '60')
+
+    def test_gb10_static_capacity_and_threads_fill_missing_metrics(self):
+        rows = monitor.model_metric_rows(dict(kind='gb10', values={},
+                                              history=monitor.History(),
+                                              capacity=8, threads=60))
+        values = {name: value for name, value, _ in rows}
+        self.assertEqual(values['Вместимость'], '8')
+        self.assertEqual(values['Потоки процесса'], '60')
+
+    def test_gb10_without_discovery_metadata_is_not_fabricated(self):
+        rows = monitor.model_metric_rows(dict(kind='gb10', values={},
+                                              history=monitor.History()))
+        values = {name: value for name, value, _ in rows}
+        self.assertEqual(values['Вместимость'], 'нет данных')
+        self.assertEqual(values['Потоки процесса'], 'нет данных')
 
     def test_hardware_table_uses_tailscale_names_not_addresses(self):
         hosts = [{'name': 'spark-a', 'ip': '192.0.2.10'}]

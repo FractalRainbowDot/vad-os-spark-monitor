@@ -181,6 +181,35 @@ class UsageClient:
         self._catalog = keys
         return keys
 
+    def model_info(self):
+        """Read-only LiteLLM provider/model route configuration."""
+        routes = ('/model/info', '/v1/model/info')
+        payload = None
+        for index, path in enumerate(routes):
+            try:
+                payload = self.get(path)
+                break
+            except APIError as exc:
+                if exc.status == 403:
+                    raise RuntimeError(f'LiteLLM: ключу запрещён {path}; '
+                                       'нужен доступ к параметрам провайдера') from None
+                if exc.status == 404 and index + 1 < len(routes):
+                    continue
+                raise
+        data = payload.get('data') if isinstance(payload, dict) else None
+        if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+            raise ValueError('LiteLLM: /model/info вернул неизвестный формат')
+        # Settings render nested fields with .get()/.items(); a malformed value
+        # must not hide otherwise valid routes or crash the rendering.
+        normalized = []
+        for item in data:
+            entry = dict(item)
+            for field in ('litellm_params', 'model_info'):
+                if field in entry and not isinstance(entry[field], dict):
+                    entry[field] = {}
+            normalized.append(entry)
+        return normalized
+
     def fetch(self, period):
         self._catalog = None  # Refresh aliases and include newly created idle keys.
         catalog = self.catalog()

@@ -33,14 +33,49 @@ def add(address, port, label='', allow_any=False):
 # Only probe likely HTTP listeners. In particular, never send HTTP to random
 # NCCL / distributed-worker sockets on private interfaces.
 http_ports = {8000, 8001, 8080, 8081, 9000, 9001}
+processes = []
 for path in Path('/proc').glob('[0-9]*/cmdline'):
     try:
         command = path.read_bytes().replace(b'\0', b' ').decode('utf-8', 'replace')
         if any(marker in command.lower() for marker in ('vllm', 'gb10_inference')):
-            for port in re.findall(r'--(?:port|metrics-port|http-port)(?:=|\s+)(\d+)\b', command):
-                http_ports.add(int(port))
+            ports = [int(port) for port in re.findall(
+                r'--(?:port|metrics-port|http-port)(?:=|\s+)(\d+)\b', command)]
+            http_ports.update(ports)
+            # A server without an explicit port listens on the vLLM default.
+            if not ports:
+                ports = [8000]
+            host = re.search(r'--host(?:=|\s+)([^\s]+)', command)
+            host = host.group(1).strip('"\'') if host else '0.0.0.0'
+            threads = None
+            try:
+                status = path.parent.joinpath('status').read_text(errors='replace')
+                match = re.search(r'^Threads:\s*(\d+)', status, re.M)
+                threads = int(match.group(1)) if match else None
+            except OSError:
+                pass
+            capacity = re.search(r'--(?:max-num-seqs|max-batch)(?:=|\s+)(\d+)\b', command)
+            # One record per port keeps metadata available for every endpoint
+            # the same process exposes (engine, metrics and HTTP ports differ).
+            for port in dict.fromkeys(ports):
+                processes.append({
+                    'host': host,
+                    'port': port,
+                    'threads': threads,
+                    'capacity': int(capacity.group(1)) if capacity else None,
+                })
     except OSError:
         pass
+
+def process_metadata(endpoint):
+    address, port = endpoint
+    candidates = [item for item in processes if item['port'] == port]
+    for item in candidates:
+        if item['host'] == address:
+            return item
+    for item in candidates:
+        if item['host'] in ('0.0.0.0', '::', '*') or address in ('127.0.0.1', '::1'):
+            return item
+    return {}
 listeners = subprocess.run(['ss', '-H', '-ltn'], capture_output=True, text=True, timeout=3)
 if listeners.returncode:
     raise RuntimeError('Cannot list listening ports')
@@ -110,7 +145,13 @@ def probe(endpoint):
     name = ', '.join(names) or labels.get(endpoint) or 'Inference'
     if any('embed' in n.lower() or 'bge-' in n.lower() or 'e5-' in n.lower() for n in names):
         kind = 'embedding'
-    return {'address': address, 'port': port, 'name': name[:240], 'kind': kind}
+    item = {'address': address, 'port': port, 'name': name[:240], 'kind': kind}
+    metadata = process_metadata(endpoint)
+    if metadata.get('capacity') is not None:
+        item['capacity'] = metadata['capacity']
+    if metadata.get('threads') is not None:
+        item['threads'] = metadata['threads']
+    return item
 
 # Prefer loopback: host-network services often also bind a private interface.
 ordered = sorted(endpoints, key=lambda e: (e[0] != '127.0.0.1', e[1], e[0]))
@@ -173,9 +214,24 @@ def reconcile(models, host, snapshot, create, close):
             continue
         changed = model.get('identity') != (descriptor['name'], descriptor['kind'])
         if changed or model.get('missing') or model['tunnel'].poll() is not None:
+            # Create first: a failed reconnect must not destroy a working card.
+            try:
+                replacement = create(descriptor)
+            except Exception:
+                model.update(status='НЕТ СВЕЖИХ ДАННЫХ: переподключение не удалось',
+                             ready=True, pending=None)
+                continue
             close(model)
-            replacement = create(descriptor)
             model.clear()
             model.update(replacement)
+        else:
+            # A probe miss is temporary: keep the last known values.
+            if 'capacity' in descriptor:
+                model['capacity'] = descriptor['capacity']
+            if 'threads' in descriptor:
+                model['threads'] = descriptor['threads']
     for descriptor in found.values():
-        models.append(create(descriptor))
+        try:
+            models.append(create(descriptor))
+        except Exception:
+            continue
