@@ -99,7 +99,7 @@ PY
 chmod 755 "$launcher_tmp"
 mv "$launcher_tmp" "$launcher"
 
-version="$("$target" --version 2>/dev/null || true)"
+version="$("$PYTHON" "$target" --version 2>/dev/null || true)"
 printf '\nУстановлено: %s\n' "$target"
 [ -n "$version" ] && printf 'Версия: %s\n' "$version"
 printf 'Команда: %s\n' "$launcher"
