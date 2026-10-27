@@ -41,6 +41,21 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(updater.version_badge(None), '')
 
 
+class RecheckTests(unittest.TestCase):
+    def test_terminal_states_stop_rechecking(self):
+        for status in ('updated', 'available', 'unavailable'):
+            self.assertFalse(updater.should_recheck({'status': status}), status)
+
+    def test_retryable_states_keep_rechecking(self):
+        self.assertTrue(updater.should_recheck({'status': 'current'}))
+        self.assertTrue(updater.should_recheck({'status': 'error', 'error': 'нет связи с GitHub'}))
+
+    def test_missing_or_unknown_state_keeps_rechecking(self):
+        self.assertTrue(updater.should_recheck({}))
+        self.assertTrue(updater.should_recheck(None))
+        self.assertTrue(updater.should_recheck({'status': 'unexpected'}))
+
+
 class DownloadTests(unittest.TestCase):
     def test_verified_download(self):
         data = io.BytesIO()

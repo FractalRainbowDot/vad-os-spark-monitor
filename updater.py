@@ -16,7 +16,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = '1.3.0'
+VERSION = '1.3.1'
 REPO = 'FractalRainbowDot/vad-os-spark-monitor'
 ASSET = 'spark-monitor.pyz'
 MAX_DOWNLOAD = 16 * 1024 * 1024
@@ -153,6 +153,12 @@ def perform_update(archive=None, current=VERSION, repo=REPO, timeout=6):
         return {'status': 'error', 'error': 'нет связи с GitHub'}
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         return {'status': 'error', 'error': str(exc)}
+
+
+def should_recheck(state):
+    """Whether periodic polling can still learn something useful."""
+    status = (state or {}).get('status')
+    return status not in ('updated', 'available', 'unavailable')
 
 
 def notice(state):

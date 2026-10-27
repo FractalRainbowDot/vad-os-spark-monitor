@@ -25,7 +25,7 @@ from credentials import key_path, load_api_key, save_api_key
 from discovery import discover, endpoint_id, reconcile
 from hosts import DEFAULT_PATTERN, discover_hosts
 from settings import read_settings, settings_document
-from updater import VERSION, notice, perform_update, version_badge
+from updater import VERSION, notice, perform_update, should_recheck, version_badge
 
 
 SAMPLE = re.compile(
@@ -34,6 +34,9 @@ SAMPLE = re.compile(
 )
 
 TITLE = 'VAD-OS Spark Monitor'
+
+# A release published while the monitor is running must still show its badge.
+UPDATE_CHECK_SECONDS = 300
 
 # A short read-only probe, at most once per five seconds per host. No agent,
 # service, package or file is installed on the machines.
@@ -555,11 +558,10 @@ def run_dashboard(screen, args, models, hosts, http, usage):
     host_names = {host['ip']: host['name'] for host in hosts}
     update_pending = None
     update_state = {}
+    next_update = 0
     deadline = time.monotonic() + 10
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool, contextlib.ExitStack() as shutdown:
         shutdown.callback(usage.close)
-        if screen is not None and not args.no_update_check:
-            update_pending = pool.submit(perform_update, args.archive)
         while True:
             now = time.monotonic()
             if not args.no_discovery:
@@ -618,8 +620,18 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 provider_pending = pool.submit(usage.model_info)
                 next_provider = now + 60
             if update_pending is not None and update_pending.done():
-                update_state = update_pending.result()
+                future = update_pending
                 update_pending = None
+                try:
+                    update_state = future.result()
+                except Exception as exc:
+                    update_state = {'status': 'error', 'error': str(exc)}
+                if should_recheck(update_state):
+                    next_update = now + UPDATE_CHECK_SECONDS
+            if (screen is not None and not args.no_update_check
+                    and update_pending is None and should_recheck(update_state)
+                    and now >= next_update):
+                update_pending = pool.submit(perform_update, args.archive)
             for host in list(probes):
                 if probes[host].done():
                     hardware[host] = (now, probes.pop(host).result())
