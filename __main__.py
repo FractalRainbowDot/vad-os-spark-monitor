@@ -113,6 +113,40 @@ def menu_lines(theme, display_name, selection, editing=False, input_text='', err
     return lines
 
 
+def menu_row_attr(row, line, count, color):
+    """Pick the text color for a popup row; borders are handled separately."""
+    if row in (0, count - 1):
+        return color(9) | curses.A_BOLD
+    if line.startswith('│ Ошибка:'):
+        return color(4) | curses.A_BOLD
+    if '▶' in line:
+        return color(3) | curses.A_BOLD
+    if row >= count - 2:
+        return color(1)
+    return color(7)
+
+
+def draw_menu(screen, popup, popup_x, popup_y, terminal_width, terminal_height, color):
+    """Draw the popup with a single border color from the active theme."""
+    border_attr = color(9) | curses.A_BOLD
+    for row, line in enumerate(popup):
+        y = popup_y + row
+        if y > terminal_height - 2:
+            break
+        attr = menu_row_attr(row, line, len(popup), color)
+        try:
+            screen.addnstr(y, popup_x, line,
+                           max(1, terminal_width - popup_x - 1), attr)
+            # The vertical edges must stay in the border color even though
+            # the rest of the row uses the item's own color.
+            if 0 < row < len(popup) - 1 and len(line) >= 2:
+                screen.addnstr(y, popup_x, line[0], 1, border_attr)
+                screen.addnstr(y, popup_x + len(line) - 1, line[-1],
+                               1, border_attr)
+        except curses.error:
+            pass
+
+
 def footer_rows(settings_view, usage_view):
     """Return the two footer rows; the active view is highlighted in the UI."""
     if settings_view:
@@ -858,25 +892,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                                    editing, menu_input, menu_error)
                 popup_x = max(2, min((terminal_width - MENU_WIDTH) // 2, terminal_width - 3))
                 popup_y = max(1, min((terminal_height - len(popup)) // 2, terminal_height - 2))
-                for row, line in enumerate(popup):
-                    y = popup_y + row
-                    if y > terminal_height - 2:
-                        break
-                    if row in (0, len(popup) - 1):
-                        attr = color(9) | curses.A_BOLD
-                    elif line.startswith('│ Ошибка:'):
-                        attr = color(4) | curses.A_BOLD
-                    elif '▶' in line:
-                        attr = color(3) | curses.A_BOLD
-                    elif row >= len(popup) - 2:
-                        attr = color(1)
-                    else:
-                        attr = color(7)
-                    try:
-                        screen.addnstr(y, popup_x, line,
-                                       max(1, terminal_width - popup_x - 1), attr)
-                    except curses.error:
-                        pass
+                draw_menu(screen, popup, popup_x, popup_y, terminal_width,
+                          terminal_height, color)
             screen.refresh()
             try:
                 raw_key = screen.get_wch()

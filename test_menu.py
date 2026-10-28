@@ -1,3 +1,4 @@
+import curses
 import importlib.util
 from pathlib import Path
 import unittest
@@ -104,6 +105,30 @@ class FooterTests(unittest.TestCase):
                          ''.join(part for part, _ in first))
         self.assertEqual(monitor.footer_line(False, False, 1),
                          ''.join(part for part, _ in second))
+
+
+class MenuDrawTests(unittest.TestCase):
+    def test_vertical_edges_keep_the_theme_border_color(self):
+        class Screen:
+            def __init__(self):
+                self.calls = []
+
+            def addnstr(self, y, x, text, n, attr):
+                self.calls.append((y, x, text, attr))
+
+        popup = monitor.menu_lines('cobalt2', 'vad-os', 0)
+        screen = Screen()
+        monitor.draw_menu(screen, popup, 10, 5, 120, 40, lambda pair: pair)
+
+        border_calls = [(text, attr) for _, _, text, attr in screen.calls
+                        if text == '│']
+        self.assertEqual(len(border_calls), 2 * (len(popup) - 2))
+        for _, attr in border_calls:
+            self.assertEqual(attr & ~curses.A_BOLD, 9)
+
+        # Top and bottom rows are drawn as one whole line in border color.
+        for index in (0, -1):
+            self.assertEqual(screen.calls[index][3] & ~curses.A_BOLD, 9)
 
 
 class RestartTests(unittest.TestCase):
