@@ -4,6 +4,8 @@ import unittest
 import banner
 
 
+RUSSIAN_ALPHABET = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+
 EXPECTED_HEADER_ART = (
     '   .::::::::. .::::::::. .::::::::.',
     '   : SPARK  : : SPARK  : : SPARK  :',
@@ -52,6 +54,17 @@ class BlockTitleTests(unittest.TestCase):
                 self.assertIn('█', ''.join(rows))
         self.assertEqual(len(banner.block_title(string.ascii_uppercase + string.digits)), 5)
 
+    def test_russian_alphabet_renders(self):
+        for char in RUSSIAN_ALPHABET:
+            with self.subTest(char=char):
+                rows = banner.block_title(char)
+                self.assertEqual(len(rows), 5)
+                self.assertTrue(all(len(row) == 6 for row in rows))
+                self.assertIn('█', ''.join(rows))
+
+    def test_lowercase_russian_is_uppercased_for_the_font(self):
+        self.assertEqual(banner.block_title('привет'), banner.block_title('ПРИВЕТ'))
+
     def test_supported_punctuation_renders(self):
         for char in "-_. /":
             with self.subTest(char=char):
@@ -59,6 +72,7 @@ class BlockTitleTests(unittest.TestCase):
 
     def test_font_is_well_formed(self):
         expected = set(string.ascii_uppercase + string.digits + ' -_./')
+        expected |= set(RUSSIAN_ALPHABET)
         self.assertTrue(expected <= set(banner.BLOCK_FONT))
         for char, glyph in banner.BLOCK_FONT.items():
             with self.subTest(char=char):
@@ -68,7 +82,7 @@ class BlockTitleTests(unittest.TestCase):
 
     def test_unsupported_character_raises(self):
         with self.assertRaises((KeyError, ValueError)):
-            banner.block_title('М')
+            banner.block_title('Ω')
 
 
 class TitleBannerTests(unittest.TestCase):
@@ -87,12 +101,24 @@ class TitleBannerTests(unittest.TestCase):
             self.assertTrue(lines[row].endswith(block[row]), (row, lines[row]))
         self.assertTrue(all(len(line) <= 80 for line in lines))
 
+    def test_russian_name_is_drawn_as_a_block_title(self):
+        name = 'ВАД-ОС'
+        block = banner.block_title(name)
+        lines = banner.title_banner(name)
+        self.assertEqual(len(lines), 6)
+        for row in range(5):
+            self.assertTrue(lines[row].endswith(block[row]), (row, lines[row]))
+        self.assertIn('░', lines[5])
+        self.assertTrue(all(len(line) <= 80 for line in lines))
+
     def test_title_is_case_insensitive(self):
         self.assertEqual(banner.title_banner('vad-os')[:5],
                          banner.title_banner('VAD-OS')[:5])
+        self.assertEqual(banner.title_banner('вад-ос')[:5],
+                         banner.title_banner('ВАД-ОС')[:5])
 
-    def test_cyrillic_name_falls_back_to_plain_text(self):
-        name = 'Монитор'
+    def test_unsupported_name_falls_back_to_plain_text(self):
+        name = 'Ω'
         lines = banner.title_banner(name)
         self.assertEqual(len(lines), 6)
         self.assertTrue(any(name in line for line in lines), lines)
