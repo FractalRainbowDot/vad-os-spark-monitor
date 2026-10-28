@@ -1,8 +1,8 @@
 """Owner-only adjacent preferences for future TUI settings.
 
-Only the allow-listed keys ``theme`` and ``display_name`` are read or written.
-The file is stored next to the running program, is never shared, and is written
-atomically with mode 600.
+Only the allow-listed keys ``theme``, ``display_name`` and ``card_order`` are
+read or written. The file is stored next to the running program, is never
+shared, and is written atomically with mode 600.
 """
 
 import errno
@@ -16,7 +16,9 @@ import tempfile
 CONFIG_NAME = '.spark-monitor.json'
 MAX_SIZE = 16384
 MAX_DISPLAY_NAME = 32
-_ALLOWED = ('theme', 'display_name')
+MAX_CARD_ORDER = 128
+MAX_CARD_KEY = 320
+_ALLOWED = ('theme', 'display_name', 'card_order')
 
 
 def config_path():
@@ -30,7 +32,25 @@ def _sanitize(key, value):
     value = ''.join(char for char in value if char.isprintable()).strip()
     if key == 'display_name':
         value = value[:MAX_DISPLAY_NAME]
+    elif key == 'card_order':
+        value = value[:MAX_CARD_KEY]
     return value
+
+
+def _sanitize_card_order(value):
+    if not isinstance(value, list):
+        return []
+    result, seen = [], set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        item = _sanitize('card_order', item)
+        if item and item not in seen:
+            result.append(item)
+            seen.add(item)
+        if len(result) >= MAX_CARD_ORDER:
+            break
+    return result
 
 
 def load_preferences(path=None):
@@ -65,7 +85,11 @@ def load_preferences(path=None):
     result = {}
     for key in _ALLOWED:
         value = payload.get(key)
-        if isinstance(value, str):
+        if key == 'card_order':
+            order = _sanitize_card_order(value)
+            if order:
+                result[key] = order
+        elif isinstance(value, str):
             value = _sanitize(key, value)
             if value:
                 result[key] = value
@@ -75,9 +99,9 @@ def load_preferences(path=None):
 def save_preferences(values, path=None):
     """Atomically write the given allowed keys with mode 600.
 
-    Only ``theme`` and ``display_name`` are written. Existing values are not
-    merged, so callers should load the current dict and pass both values when
-    changing only one of them. Empty and non-string values are omitted.
+    Only allow-listed values are written. Existing values are not merged, so
+    callers should pass the current values when changing one of them. Empty
+    values and malformed card order entries are omitted.
     """
     if not isinstance(values, dict):
         raise ValueError('Ожидается словарь настроек')
@@ -85,7 +109,11 @@ def save_preferences(values, path=None):
     result = {}
     for key in _ALLOWED:
         value = values.get(key)
-        if isinstance(value, str):
+        if key == 'card_order':
+            order = _sanitize_card_order(value)
+            if order:
+                result[key] = order
+        elif isinstance(value, str):
             value = _sanitize(key, value)
             if value:
                 result[key] = value

@@ -46,6 +46,19 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text(encoding='utf-8')),
                          {'theme': 'light', 'display_name': 'A'})
 
+    def test_card_order_round_trip_and_sanitizing(self):
+        values = {'theme': 'Ice', 'card_order': ['A', ' A ', 'B\x00', '', 'A', 7]}
+        preferences.save_preferences(values, self.path)
+        self.assertEqual(preferences.load_preferences(self.path),
+                         {'theme': 'Ice', 'card_order': ['A', 'B']})
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+    def test_card_order_is_bounded(self):
+        items = ['card-%d' % index for index in range(preferences.MAX_CARD_ORDER + 20)]
+        preferences.save_preferences({'card_order': items}, self.path)
+        self.assertEqual(len(preferences.load_preferences(self.path)['card_order']),
+                         preferences.MAX_CARD_ORDER)
+
     def test_empty_values_are_omitted(self):
         preferences.save_preferences({'theme': '', 'display_name': '   '}, self.path)
         self.assertEqual(json.loads(self.path.read_text(encoding='utf-8')), {})

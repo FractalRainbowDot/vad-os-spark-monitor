@@ -228,6 +228,38 @@ class DiscoveryTests(unittest.TestCase):
                 for k in ('gb10', 'vllm')]
         self.assertEqual([(n, note) for n, _, note in a], [(n, note) for n, _, note in b])
 
+    def test_card_order_survives_missing_cards_and_moves(self):
+        first = {'name': 'first'}
+        second = {'name': 'second'}
+        order = ['missing']
+        monitor.sync_card_order([first, second], order)
+        self.assertEqual(order, ['missing', 'first', 'second'])
+        self.assertEqual([item['name'] for item in monitor.ordered_models([second, first], order)],
+                         ['first', 'second'])
+        monitor.move_card(order, [first, second], 'second', -1)
+        self.assertEqual(order, ['missing', 'second', 'first'])
+        self.assertEqual(monitor.ensure_card_focus([first, second], 'second'), 'second')
+        self.assertEqual(monitor.ensure_card_focus([first], 'second'), 'first')
+        self.assertIsNone(monitor.ensure_card_focus([], 'second'))
+
+    def test_stale_cards_are_removed_after_180_seconds(self):
+        old = {'name': 'old', 'last': 100}
+        fresh = {'name': 'fresh', 'last': 200}
+        created_only = {'name': 'created', 'created': 100}
+        models = [old, fresh, created_only]
+        closed = []
+        removed = monitor.prune_stale_models(models, 280, closed.append)
+        self.assertEqual([model['name'] for model in removed], ['old', 'created'])
+        self.assertEqual([model['name'] for model in models], ['fresh'])
+        self.assertEqual([model['name'] for model in closed], ['old', 'created'])
+
+    def test_focused_card_has_a_marker(self):
+        model = {'name': 'focused', 'kind': 'vllm', 'values': {},
+                 'history': monitor.History(), 'last': 0, 'status': 'LIVE'}
+        text = '\n'.join(monitor.model_tables([model], 100, False, 1,
+                                              focus_key='focused'))
+        self.assertIn('▶ focused', text)
+
     def test_vllm_static_capacity_and_threads_fill_missing_metrics(self):
         rows = monitor.model_metric_rows(dict(kind='vllm', values={},
                                               history=monitor.History(),

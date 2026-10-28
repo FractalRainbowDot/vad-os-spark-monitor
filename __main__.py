@@ -69,6 +69,7 @@ print(json.dumps(result))
 '''
 MENU_WIDTH = 48
 MENU_ITEMS = 2
+STALE_SECONDS = 180
 
 
 def resolve_display_name(custom_name, key_alias):
@@ -441,25 +442,75 @@ def model_table_rows(model, show_help, now):
     return rows
 
 
+def model_key(model):
+    return str(model.get('name', ''))
+
+
+def ordered_models(models, card_order):
+    """Sort cards by the saved manual order; new cards go last."""
+    rank = {key: index for index, key in enumerate(card_order)}
+    return sorted(models, key=lambda model: (rank.get(model_key(model), len(rank)),
+                                             model_key(model)))
+
+
+def sync_card_order(models, card_order):
+    """Append newly discovered cards without dropping missing card positions."""
+    known = set(card_order)
+    for model in models:
+        key = model_key(model)
+        if key and key not in known:
+            card_order.append(key)
+            known.add(key)
+    return card_order
+
+
+def ensure_card_focus(models, focus_key):
+    keys = [model_key(model) for model in models]
+    if focus_key in keys:
+        return focus_key
+    return keys[0] if keys else None
+
+
+def move_card(card_order, models, focus_key, step):
+    """Swap the focused card with its neighbour in the saved order."""
+    keys = [model_key(model) for model in models]
+    try:
+        index = keys.index(focus_key)
+    except ValueError:
+        return card_order
+    target = index + int(step)
+    if not 0 <= target < len(keys):
+        return card_order
+    other = keys[target]
+    for key in (focus_key, other):
+        if key not in card_order:
+            card_order.append(key)
+    first, second = card_order.index(focus_key), card_order.index(other)
+    card_order[first], card_order[second] = card_order[second], card_order[first]
+    return card_order
+
+
 def selected_models(models, embeddings):
     return [model for model in models if (model['kind'] == 'embedding') == embeddings]
 
 
-def model_tables(models, width, show_help, now):
+def model_tables(models, width, show_help, now, focus_key=None):
     rows = [model_table_rows(model, show_help, now) for model in models]
     side_by_side = len(models) == 2 and width >= (160 if show_help else 112)
+    titles = [('▶ ' if focus_key == model_key(model) else '') + model['name']
+              for model in models]
     if side_by_side:
         left_width = (width - 2) // 2
         widths = (left_width, width - 2 - left_width)
         row_count = max(map(len, rows))
-        tables = [framed_table(model['name'], body + [''] * (row_count - len(body)), column_width)
-                  for model, body, column_width in zip(models, rows, widths)]
+        tables = [framed_table(title, body + [''] * (row_count - len(body)), column_width)
+                  for title, body, column_width in zip(titles, rows, widths)]
         return [left + '  ' + right for left, right in zip(*tables)]
     lines = []
-    for model, body in zip(models, rows):
+    for title, body in zip(titles, rows):
         if lines:
             lines.append('')
-        lines.extend(framed_table(model['name'], body, width))
+        lines.extend(framed_table(title, body, width))
     return lines
 
 
@@ -608,7 +659,15 @@ def run_dashboard(screen, args, models, hosts, http, usage):
         preferences = {}
     theme = normalize_theme(preferences.get('theme'))
     custom_name = preferences.get('display_name', '')
+    card_order = preferences.get('card_order', [])
+    if not isinstance(card_order, list):
+        card_order = []
+    card_focus_key = None
     display_name = custom_name or TITLE
+
+    def save_ui_preferences():
+        save_preferences({'theme': theme, 'display_name': custom_name,
+                          'card_order': card_order})
     if screen is not None:
         try:
             curses.curs_set(0)
@@ -753,7 +812,10 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                     model['errors'].seek(0)
                     model['status'] = 'SSH: ' + (model['errors'].read().strip() or 'туннель закрылся')
                     model['ready'] = True
-            active = selected_models(models, embeddings)
+            prune_stale_models(models, now, close_model)
+            sync_card_order(models, card_order)
+            active = selected_models(ordered_models(models, card_order), embeddings)
+            card_focus_key = ensure_card_focus(active, card_focus_key)
             discovery_ready = args.no_discovery or len(discovery_state) == len(discovery_hosts)
             if args.once and discovery_ready and all(model['ready'] for model in active) and len(hardware) == len(hosts):
                 lines = [f'{TITLE} | v{VERSION} | {datetime.now():%H:%M:%S}']
@@ -851,7 +913,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                                  'Администратор: без key-hash. Личный режим: только текущий ключ, без вывода хеша.'])
                 document = framed_table(title, body, width)
             else:
-                document = hardware_table + discovery_rows(args, discovery_state, hosts) + [''] + model_tables(active, width, show_help, now)
+                document = (hardware_table + discovery_rows(args, discovery_state, hosts) + [''] +
+                            model_tables(active, width, show_help, now, focus_key=card_focus_key))
                 if not active:
                     document += ['Модели пока не обнаружены.' if not embeddings else 'Embedding-модели пока не обнаружены.']
             alerts = document_alerts(document, hardware, hosts)
@@ -884,6 +947,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 else:
                     put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [m] — меню темы и имени; '
                                     '[s] — Static (статические настройки); секреты скрыты.')
+                    put(height - 2, ' [j/k] — выбрать карточку; клавиши [ и ] — переместить её.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
             for footer_row, segments in zip((height - 1, height),
@@ -925,7 +989,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                         custom_name = menu_input.strip()
                         display_name = resolve_display_name(custom_name, key_alias)
                         try:
-                            save_preferences({'theme': theme, 'display_name': custom_name})
+                            save_ui_preferences()
                             menu_error = ''
                         except (OSError, ValueError) as exc:
                             menu_error = str(exc)
@@ -949,7 +1013,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                         theme = cycle_theme(theme, step)
                         apply_theme(theme)
                         try:
-                            save_preferences({'theme': theme, 'display_name': custom_name})
+                            save_ui_preferences()
                             menu_error = ''
                         except (OSError, ValueError) as exc:
                             menu_error = str(exc)
@@ -958,7 +1022,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                             theme = cycle_theme(theme, 1)
                             apply_theme(theme)
                             try:
-                                save_preferences({'theme': theme, 'display_name': custom_name})
+                                save_ui_preferences()
                                 menu_error = ''
                             except (OSError, ValueError) as exc:
                                 menu_error = str(exc)
@@ -1002,6 +1066,21 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 usage_period, offset = key, 0
             elif key == 'h':
                 show_help = not show_help
+            elif not usage_view and not settings_view and key in ('j', 'J', 'k', 'K'):
+                if active:
+                    keys = [model_key(model) for model in active]
+                    index = keys.index(card_focus_key) if card_focus_key in keys else 0
+                    step = 1 if key in ('j', 'J') else -1
+                    card_focus_key = keys[(index + step) % len(keys)]
+            elif not usage_view and not settings_view and key in ('[', ']'):
+                if active and card_focus_key:
+                    step = -1 if key == '[' else 1
+                    sync_card_order(models, card_order)
+                    card_order = move_card(card_order, active, card_focus_key, step)
+                    try:
+                        save_ui_preferences()
+                    except (OSError, ValueError):
+                        pass
             elif key in ('-', '=', '+'):
                 args.interval = change_interval(args.interval, key)
                 next_poll = time.monotonic() + args.interval / 1000
@@ -1042,6 +1121,21 @@ def close_model(model):
     model['errors'].close()
 
 
+def prune_stale_models(models, now, close, threshold=STALE_SECONDS):
+    """Remove cards that have not delivered fresh data for the threshold."""
+    removed = []
+    for model in list(models):
+        timestamp = model.get('last')
+        if timestamp is None:
+            timestamp = model.get('created')
+        if timestamp is None or now - timestamp < threshold:
+            continue
+        models.remove(model)
+        close(model)
+        removed.append(model)
+    return removed
+
+
 def create_model(descriptor, user, automatic=False, host_label=None):
     local_port = free_port()
     errors = tempfile.TemporaryFile(mode='w+t')
@@ -1059,7 +1153,8 @@ def create_model(descriptor, user, automatic=False, host_label=None):
             'tunnel': tunnel, 'errors': errors,
             'url': f'http://127.0.0.1:{local_port}/metrics',
             'history': History(), 'values': {}, 'pending': None,
-            'last': None, 'status': 'Подключение…', 'ready': False}
+            'last': None, 'created': time.monotonic(),
+            'status': 'Подключение…', 'ready': False}
 
 
 def start_tunnel(host, user, local_port, remote_port, errors, remote_address='127.0.0.1'):
