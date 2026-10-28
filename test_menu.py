@@ -27,6 +27,27 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(monitor.normalize_key('к'), 'r')
 
 
+class TabTests(unittest.TestCase):
+    def test_litellm_tab_is_inert(self):
+        for embeddings in (False, True):
+            with self.subTest(embeddings=embeddings):
+                self.assertEqual(
+                    monitor.tab_effect(False, True, 'providers', embeddings),
+                    ('providers', embeddings))
+
+    def test_models_tab_toggles_embeddings(self):
+        self.assertEqual(monitor.tab_effect(False, False, 'providers', False),
+                         ('providers', True))
+        self.assertEqual(monitor.tab_effect(False, False, 'providers', True),
+                         ('providers', False))
+
+    def test_static_tab_toggles_providers_and_sparks(self):
+        self.assertEqual(monitor.tab_effect(True, False, 'providers', False),
+                         ('sparks', False))
+        self.assertEqual(monitor.tab_effect(True, False, 'sparks', True),
+                         ('providers', True))
+
+
 class DisplayNameTests(unittest.TestCase):
     def test_custom_name_wins_over_alias(self):
         self.assertEqual(monitor.resolve_display_name('Мой Spark', 'manana'),

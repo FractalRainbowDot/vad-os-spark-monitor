@@ -180,6 +180,15 @@ def footer_line(settings_view, usage_view, row=0):
     return ''.join(text for text, _ in footer_rows(settings_view, usage_view)[row])
 
 
+def tab_effect(settings_view, usage_view, settings_tab, embeddings):
+    """Return (settings_tab, embeddings) after Tab; LiteLLM is inert."""
+    if settings_view:
+        return ('sparks' if settings_tab == 'providers' else 'providers'), embeddings
+    if usage_view:
+        return settings_tab, embeddings
+    return settings_tab, not embeddings
+
+
 def restart_requested(key, update_state):
     return key == 'r' and (update_state or {}).get('status') == 'updated'
 
@@ -963,16 +972,16 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if key == 'q':
                 return
             if key == '\t':
+                if usage_view:
+                    continue
+                settings_tab, embeddings = tab_effect(
+                    settings_view, usage_view, settings_tab, embeddings)
+                offset = 0
                 if settings_view:
-                    settings_tab = ('sparks' if settings_tab == 'providers' else 'providers')
-                    offset = 0
                     if settings_tab == 'providers':
                         next_provider = 0
                     else:
                         next_settings = 0
-                else:
-                    embeddings, offset = not embeddings, 0
-                    usage_view = settings_view = False
             elif key == 'l':
                 usage_view, offset = not usage_view, 0
                 settings_view = False
