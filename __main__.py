@@ -112,6 +112,45 @@ def menu_lines(theme, display_name, selection, editing=False, input_text='', err
     return lines
 
 
+def footer_segments(settings_view, usage_view):
+    """Return footer text pieces and whether each is the active view."""
+    if settings_view:
+        parts = [
+            (' [-/+] частота  ', False),
+            ('[Tab] провайдеры/Spark  ', False),
+            ('[s] назад  ', True),
+            ('[l] LiteLLM  ', False),
+            ('[m] меню  ', False),
+            ('[h] пояснения  ', False),
+            ('[q] выход', False),
+        ]
+    elif usage_view:
+        parts = [
+            (' [-/+] частота  ', False),
+            ('[Tab] модели  ', False),
+            ('[s] Static  ', False),
+            ('[l] назад  ', True),
+            ('[m] меню  ', False),
+            ('[h] пояснения  ', False),
+            ('[q] выход', False),
+        ]
+    else:
+        parts = [
+            (' [-/+] частота  ', False),
+            ('[Tab] модели  ', True),
+            ('[s] Static  ', False),
+            ('[l] LiteLLM  ', False),
+            ('[m] меню  ', False),
+            ('[h] пояснения  ', False),
+            ('[q] выход', False),
+        ]
+    return [(('● ' + text) if active else text, active) for text, active in parts]
+
+
+def footer_line(settings_view, usage_view):
+    return ''.join(text for text, _ in footer_segments(settings_view, usage_view))
+
+
 def normalize_key(key):
     return {'Q': 'q', 'й': 'q', 'Й': 'q', 'H': 'h', 'р': 'h', 'Р': 'h',
             'L': 'l', 'д': 'l', 'Д': 'l', 'S': 's', 'ы': 's', 'Ы': 's',
@@ -706,8 +745,8 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             for y, line in enumerate(banner):
                 put(y, line, color((5, 6, 7, 8, 9, 10, 7, 7, 7)[y]) | curses.A_BOLD)
             header_height = len(banner)
-            mode = ('НАСТРОЙКИ · ПРОВАЙДЕРЫ' if settings_view and settings_tab == 'providers' else
-                    'НАСТРОЙКИ · SPARK' if settings_view else
+            mode = ('STATIC · ПРОВАЙДЕРЫ' if settings_view and settings_tab == 'providers' else
+                    'STATIC · SPARK' if settings_view else
                     'LITELLM · ' + PERIODS[usage_period][1] if usage_view else
                     'EMBEDDING' if embeddings else 'ОБЫЧНЫЕ МОДЕЛИ')
             badge = version_badge(update_state)
@@ -788,17 +827,24 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if show_help:
                 if settings_view:
                     put(height - 5, ' [Tab] — вкладка провайдеры/Spark; [m] — меню темы и имени; '
-                                    '[s] — закрыть настройки; секреты скрыты.')
+                                    '[s] — закрыть Static; секреты скрыты.')
                 else:
                     put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [m] — меню темы и имени; '
-                                    '[s] — статичные настройки запуска; секреты скрыты.')
+                                    '[s] — Static (статические настройки); секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            footer = (' [-/+] частота  [Tab] провайдеры/Spark  [s] назад  [l] LiteLLM  [m] меню  '
-                      '[h] пояснения  [q] выход' if settings_view else
-                      ' [-/+] частота  [Tab] модели  [s] настройки  [l] LiteLLM  [m] меню  '
-                      '[h] пояснения  [q] выход')
-            put(height - 2, footer, color(1))
+            footer_x = 2
+            for text, active in footer_segments(settings_view, usage_view):
+                if footer_x >= terminal_width - 1:
+                    break
+                attr = (color(3) | curses.A_BOLD | curses.A_REVERSE
+                        if active else color(1))
+                try:
+                    screen.addnstr(height - 1, footer_x, text,
+                                   terminal_width - footer_x - 1, attr)
+                except curses.error:
+                    pass
+                footer_x += len(text)
             if menu_open:
                 popup = menu_lines(theme, display_name, menu_selection,
                                    editing, menu_input, menu_error)
@@ -1033,7 +1079,7 @@ def main():
     parser.add_argument('--explain', action='store_true', help='start with metric explanations')
     parser.add_argument('--usage', action='store_true', help='start in LiteLLM key activity view')
     parser.add_argument('--settings', action='store_true',
-                        help='start in static settings view on the providers tab')
+                        help='start in Static view on the providers tab')
     parser.add_argument('--period', choices=tuple(PERIODS), default='2', help='1=day, 2=week, 3=month, 4=year')
     parser.add_argument('--litellm-url', help='override the auto-detected LiteLLM address')
     parser.add_argument('--save-key', action='store_true', help='save LiteLLM key using hidden input, then exit')

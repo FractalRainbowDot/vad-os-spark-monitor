@@ -63,6 +63,36 @@ class ThemeCycleTests(unittest.TestCase):
         self.assertEqual(monitor.cycle_theme(None, -1), themes.THEME_NAMES[-1])
 
 
+class FooterTests(unittest.TestCase):
+    def test_models_view_uses_static_label_and_highlights_models(self):
+        segments = monitor.footer_segments(False, False)
+        text = ''.join(part for part, _ in segments)
+        self.assertIn('[s] Static', text)
+        self.assertIn('[l] LiteLLM', text)
+        self.assertEqual([part for part, active in segments if active],
+                         ['● [Tab] модели  '])
+
+    def test_usage_view_changes_litellm_to_back(self):
+        segments = monitor.footer_segments(False, True)
+        text = ''.join(part for part, _ in segments)
+        self.assertIn('[l] назад', text)
+        self.assertNotIn('[l] LiteLLM', text)
+        self.assertEqual([part for part, active in segments if active],
+                         ['● [l] назад  '])
+
+    def test_settings_view_highlights_back_and_keeps_static_controls(self):
+        segments = monitor.footer_segments(True, False)
+        text = ''.join(part for part, _ in segments)
+        self.assertIn('[s] назад', text)
+        self.assertNotIn('[s] Static', text)
+        self.assertEqual([part for part, active in segments if active],
+                         ['● [s] назад  '])
+
+    def test_footer_line_joins_the_segments(self):
+        self.assertEqual(monitor.footer_line(False, False),
+                         ''.join(part for part, _ in monitor.footer_segments(False, False)))
+
+
 class MenuLinesTests(unittest.TestCase):
     def test_menu_contains_items_and_fixed_width_lines(self):
         lines = monitor.menu_lines('Ice', 'manana', 0)
