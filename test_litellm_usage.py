@@ -83,8 +83,8 @@ class ModelInfoTests(unittest.TestCase):
 
 class KeyAliasTests(unittest.TestCase):
     def test_returns_current_key_alias(self):
-        client = FakeClient({'/key/info': {'info': {'key_alias': 'manana'}}})
-        self.assertEqual(client.key_alias(), 'manana')
+        client = FakeClient({'/key/info': {'info': {'key_alias': 'team-key'}}})
+        self.assertEqual(client.key_alias(), 'team-key')
         self.assertEqual(client.calls, ['/key/info'])
         # Read-only: catalog/per-key state stays untouched.
         self.assertIsNone(client._catalog)
@@ -117,7 +117,7 @@ class KeyAliasTests(unittest.TestCase):
             {'info': {}},
             {'info': {'key_alias': None}},
             {'info': {'key_alias': 42}},
-            {'info': {'key_alias': ['manana']}},
+            {'info': {'key_alias': ['team-key']}},
         )
         for payload in payloads:
             with self.subTest(payload=payload):
@@ -126,8 +126,8 @@ class KeyAliasTests(unittest.TestCase):
 
     def test_cleans_whitespace_and_control_characters(self):
         client = FakeClient({'/key/info': {
-            'info': {'key_alias': '  manana\t\n\x00  team  '}}})
-        self.assertEqual(client.key_alias(), 'manana team')
+            'info': {'key_alias': '  team-key\t\n\x00  team  '}}})
+        self.assertEqual(client.key_alias(), 'team-key team')
 
     def test_caps_alias_at_64_characters(self):
         client = FakeClient({'/key/info': {'info': {'key_alias': 'a' * 100}}})

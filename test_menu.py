@@ -50,13 +50,13 @@ class TabTests(unittest.TestCase):
 
 class DisplayNameTests(unittest.TestCase):
     def test_custom_name_wins_over_alias(self):
-        self.assertEqual(monitor.resolve_display_name('Мой Spark', 'manana'),
+        self.assertEqual(monitor.resolve_display_name('Мой Spark', 'sample'),
                          'Мой Spark')
 
     def test_alias_is_used_without_a_custom_name(self):
-        self.assertEqual(monitor.resolve_display_name('', 'manana'), 'manana')
-        self.assertEqual(monitor.resolve_display_name(None, 'manana'), 'manana')
-        self.assertEqual(monitor.resolve_display_name('   ', 'manana'), 'manana')
+        self.assertEqual(monitor.resolve_display_name('', 'sample'), 'sample')
+        self.assertEqual(monitor.resolve_display_name(None, 'sample'), 'sample')
+        self.assertEqual(monitor.resolve_display_name('   ', 'sample'), 'sample')
 
     def test_title_is_the_last_resort(self):
         self.assertEqual(monitor.resolve_display_name('', ''), banner.TITLE)
@@ -64,7 +64,7 @@ class DisplayNameTests(unittest.TestCase):
 
     def test_values_are_stripped(self):
         self.assertEqual(monitor.resolve_display_name('  Spark  ', ''), 'Spark')
-        self.assertEqual(monitor.resolve_display_name('', '  manana  '), 'manana')
+        self.assertEqual(monitor.resolve_display_name('', '  sample  '), 'sample')
 
 
 class ThemeCycleTests(unittest.TestCase):
@@ -95,10 +95,15 @@ class FooterTests(unittest.TestCase):
         self.assertIn('[v] Модели', first_text)
         self.assertIn('[l] LiteLLM', first_text)
         self.assertIn('[s] Static', first_text)
+        self.assertIn('[tab] Смена', second_text)
         self.assertIn('[m] Меню', second_text)
         self.assertIn('[h] Пояснения', second_text)
         self.assertIn('[q] Выход', second_text)
         self.assertNotIn('[-/+]', first_text + second_text)
+
+    def test_litellm_does_not_advertise_inactive_tab(self):
+        _, second = monitor.footer_rows(False, True)
+        self.assertNotIn('[tab] Смена', ''.join(part for part, _ in second))
 
     def test_models_view_highlights_models(self):
         first, _ = monitor.footer_rows(False, False)
@@ -165,43 +170,43 @@ class RestartTests(unittest.TestCase):
 
 class MenuLinesTests(unittest.TestCase):
     def test_menu_contains_items_and_fixed_width_lines(self):
-        lines = monitor.menu_lines('Ice', 'manana', 0)
+        lines = monitor.menu_lines('Ice', 'sample', 0)
         self.assertTrue(all(len(line) == monitor.MENU_WIDTH for line in lines))
         text = '\n'.join(lines)
         self.assertIn('Тема: Ice', text)
-        self.assertIn('Имя: manana', text)
+        self.assertIn('Имя: sample', text)
         self.assertIn('НАСТРОЙКИ', text)
         self.assertIn('m/Esc', text)
 
     def test_selection_marker_moves(self):
-        theme_selected = monitor.menu_lines('Mono', 'manana', 0)
+        theme_selected = monitor.menu_lines('Mono', 'sample', 0)
         self.assertTrue(any('▶ Тема:' in line for line in theme_selected))
         self.assertFalse(any('▶ Имя:' in line for line in theme_selected))
 
-        name_selected = monitor.menu_lines('Mono', 'manana', 1)
+        name_selected = monitor.menu_lines('Mono', 'sample', 1)
         self.assertFalse(any('▶ Тема:' in line for line in name_selected))
         self.assertTrue(any('▶ Имя:' in line for line in name_selected))
 
     def test_editing_prefills_and_marks_the_name_item(self):
-        lines = monitor.menu_lines('Emerald', 'manana', 1,
+        lines = monitor.menu_lines('Emerald', 'sample', 1,
                                    editing=True, input_text='Мой Spark')
         self.assertTrue(all(len(line) == monitor.MENU_WIDTH for line in lines))
         text = '\n'.join(lines)
         self.assertIn('Имя: Мой Spark', text)
-        self.assertNotIn('Имя: manana', text)
+        self.assertNotIn('Имя: sample', text)
         self.assertTrue(any('▶ Имя:' in line for line in lines))
         self.assertFalse(any('▶ Тема:' in line for line in lines))
         self.assertIn('Ctrl+U', text)
         self.assertIn('Esc — отмена', text)
 
     def test_editing_ignores_the_theme_selection_argument(self):
-        lines = monitor.menu_lines('VAD-OS', 'manana', 0,
+        lines = monitor.menu_lines('VAD-OS', 'sample', 0,
                                    editing=True, input_text='')
         self.assertFalse(any('▶ Тема:' in line for line in lines))
         self.assertTrue(any('▶ Имя:' in line for line in lines))
 
     def test_error_is_shown_in_the_popup(self):
-        lines = monitor.menu_lines('Amber', 'manana', 0, error='нет доступа')
+        lines = monitor.menu_lines('Amber', 'sample', 0, error='нет доступа')
         self.assertTrue(all(len(line) == monitor.MENU_WIDTH for line in lines))
         self.assertTrue(any('Ошибка: нет доступа' in line for line in lines))
 

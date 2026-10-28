@@ -207,18 +207,10 @@ python3 spark-monitor.pyz --once --settings   # один снимок обеих
 Клавиша `m` открывает всплывающее меню. Сейчас там два пункта; меню рассчитано
 на добавление будущих настроек.
 
-- **Тема** — пять исходных (`VAD-OS`, `Ice`, `Emerald`, `Amber`, `Mono`) и
-  34 адаптированные темы OpenCode: `aura`, `ayu`, `carbonfox`, `catppuccin`,
-  `catppuccin-frappe`, `catppuccin-macchiato`, `cobalt2`, `cursor`, `dracula`,
-  `everforest`, `flexoki`, `github`, `gruvbox`, `kanagawa`, `lucent-orng`,
-  `material`, `matrix`, `mercury`, `monokai`, `nightowl`, `nord`, `one-dark`,
-  `opencode`, `orng`, `osaka-jade`, `palenight`, `rosepine`, `solarized`,
-  `synthwave84`, `system`, `tokyonight`, `vercel`, `vesper`, `zenburn`.
-  Стрелки `←`/`→` меняют палитру сразу; `Enter` переключает на следующую.
-  Палитры адаптированы к 10 ролям монитора и не являются пиксельной копией
-  цветов OpenCode.
+- **Тема** — 5 исходных и 34 темы OpenCode; `←`/`→` меняют палитру,
+  `Enter` переключает на следующую.
 - **Имя в шапке** — по умолчанию показывается alias текущего ключа LiteLLM из
-  `/key/info` (например, `manana`). Можно задать своё имя, например `VAD-OS`;
+  `/key/info` (например, `team-key`). Можно задать своё имя, например `VAD-OS`;
   пустое значение возвращает имя ключа. Длинные и нелатинские имена безопасно
   выводятся текстом, если для них нет блочных букв.
 

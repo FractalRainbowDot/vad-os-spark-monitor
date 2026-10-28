@@ -167,11 +167,14 @@ def footer_rows(settings_view, usage_view):
             ('[l] LiteLLM  ', False),
             ('[s] Static  ', False),
         ]
-    second = [
+    second = []
+    if not usage_view:
+        second.append(('[tab] Смена  ', False))
+    second.extend([
         ('[m] Меню  ', False),
         ('[h] Пояснения  ', False),
         ('[q] Выход', False),
-    ]
+    ])
     rows = (first, second)
     return tuple([[(text, active) for text, active in row] for row in rows])
 
@@ -490,27 +493,30 @@ def hardware_rows(hardware, hosts, now):
     rows = ['ХОСТ                              │ GPU °C │ GPU % │ W     │ RAM GiB       │ SWAP  │ LOAD1 │ ВОЗРАСТ']
     for host in hosts:
         entry = hardware.get(host['ip'])
-        rows.append(host['name'])
         if not entry:
-            rows.append('  Подключение…')
+            rows.append(f'{host["name"]} · подключение…')
             continue
         timestamp, data = entry
         age = f'{now - timestamp:.0f}s'
         if 'error' in data:
-            rows.append('  НЕТ ДАННЫХ: ' + data['error'])
+            rows.append(f'{host["name"]} · НЕТ ДАННЫХ: {data["error"]}')
             continue
         memory = (f"{data['ram_used']:.1f}/{data['ram_total']:.1f}"
                   if 'ram_used' in data else '—')
         swap = f"{data['swap_used']:.1f}" if 'swap_used' in data else '—'
-        for gpu in data.get('gpus', []):
-            if len(gpu) >= 4:
+        gpus = [gpu for gpu in data.get('gpus', []) if len(gpu) >= 4]
+        if gpus:
+            for gpu in gpus:
                 index, temp, util, power = gpu[:4]
-                rows.append(f'  GPU {index:27} │ {temp:6} │ {util:5} │ {power:5} │ '
+                label = f'{host["name"]} GPU {index}'[:33].ljust(33)
+                rows.append(f'{label} │ {temp:6} │ {util:5} │ {power:5} │ '
                             f'{memory:13} │ {swap:5} │ {data.get("load", "—"):5} │ {age}')
+        else:
+            rows.append(host['name'])
         if 'gpu_error' in data:
-            rows.append('  GPU: ' + data['gpu_error'])
+            rows.append(f'{host["name"]} · GPU: {data["gpu_error"]}')
         if 'memory_error' in data:
-            rows.append('  RAM: ' + data['memory_error'])
+            rows.append(f'{host["name"]} · RAM: {data["memory_error"]}')
     return rows
 
 

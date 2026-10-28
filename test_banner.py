@@ -37,7 +37,7 @@ class HeaderTests(unittest.TestCase):
 
 class BlockTitleTests(unittest.TestCase):
     def test_returns_five_rows_of_block_characters(self):
-        rows = banner.block_title('manana')
+        rows = banner.block_title('sample')
         self.assertEqual(len(rows), 5)
         self.assertTrue(all(len(row) == len(rows[0]) for row in rows))
         self.assertIn('█', ''.join(rows))
@@ -72,9 +72,9 @@ class BlockTitleTests(unittest.TestCase):
 
 
 class TitleBannerTests(unittest.TestCase):
-    def test_manana_is_drawn_as_a_block_title(self):
-        block = banner.block_title('manana')
-        lines = banner.title_banner('manana')
+    def test_lowercase_alias_is_drawn_as_a_block_title(self):
+        block = banner.block_title('sample')
+        lines = banner.title_banner('sample')
         for row in range(5):
             self.assertTrue(lines[row].endswith(block[row]), (row, lines[row]))
         self.assertIn('░', lines[5])

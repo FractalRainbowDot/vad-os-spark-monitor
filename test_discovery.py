@@ -256,7 +256,10 @@ class DiscoveryTests(unittest.TestCase):
         hardware = {'192.0.2.10': (10.0, {'gpus': [['0', '42', '7', '12', '30']],
                                          'ram_used': 99.5, 'ram_total': 100.0,
                                          'swap_used': 1.0, 'load': '0.5'})}
-        rows = monitor.framed_table('test', monitor.hardware_rows(hardware, hosts, 12.0), 100)
+        raw_rows = monitor.hardware_rows(hardware, hosts, 12.0)
+        self.assertEqual(len(raw_rows), 2)
+        self.assertIn('spark-a GPU 0', raw_rows[1])
+        rows = monitor.framed_table('test', raw_rows, 100)
         text = '\n'.join(rows)
         self.assertIn('spark-a', text)
         self.assertNotIn('192.0.2.10', text)
