@@ -54,11 +54,10 @@ BLOCK_FONT = {
     'Г': ('11111', '11000', '11000', '11000', '11000'),
     'Д': ('01110', '01010', '01010', '11111', '10001'),
     'Е': ('11111', '11000', '11110', '11000', '11111'),
-    'Ё': ('01010', '11111', '11000', '11110', '11111'),
     'Ж': ('10001', '01010', '11111', '01010', '10001'),
     'З': ('11110', '00001', '01110', '00001', '11110'),
     'И': ('10001', '10011', '10101', '11001', '10001'),
-    'Й': ('01110', '10001', '10011', '10101', '11001'),
+    'Й': ('00100', '10001', '10011', '10101', '11001'),
     'К': ('11011', '11010', '11100', '11010', '11011'),
     'Л': ('01110', '01010', '01010', '01010', '11001'),
     'М': ('10001', '11011', '10101', '10001', '10001'),
@@ -104,7 +103,8 @@ def block_title(text):
     Raises ValueError (or KeyError) for a character the font does not cover.
     Callers that cannot trust their input should use ``title_banner``.
     """
-    text = str(text).upper()
+    # `Ё` is folded into `Е`: a 5x5 dot pair is not readable enough.
+    text = str(text).upper().replace('Ё', 'Е')
     unsupported = sorted(set(char for char in text if char not in BLOCK_FONT))
     if unsupported:
         raise ValueError('unsupported banner characters: %r' % ''.join(unsupported))
