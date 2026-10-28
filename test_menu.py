@@ -83,13 +83,13 @@ class FooterTests(unittest.TestCase):
         self.assertEqual([part for part, active in first if active],
                          ['● [v] Модели  '])
 
-    def test_usage_view_changes_litellm_to_back(self):
+    def test_usage_view_keeps_litellm_label_and_highlights_it(self):
         first, _ = monitor.footer_rows(False, True)
         text = ''.join(part for part, _ in first)
-        self.assertIn('[l] назад', text)
-        self.assertNotIn('[l] LiteLLM', text)
+        self.assertIn('[l] LiteLLM', text)
+        self.assertNotIn('[l] назад', text)
         self.assertEqual([part for part, active in first if active],
-                         ['● [l] назад  '])
+                         ['● [l] LiteLLM  '])
 
     def test_settings_view_highlights_static(self):
         first, _ = monitor.footer_rows(True, False)

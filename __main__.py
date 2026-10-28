@@ -124,7 +124,7 @@ def footer_rows(settings_view, usage_view):
     elif usage_view:
         first = [
             ('[v] Модели  ', False),
-            ('[l] назад  ', True),
+            ('[l] LiteLLM  ', True),
             ('[s] Static  ', False),
         ]
     else:
@@ -838,7 +838,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                                     '[s] — Static (статические настройки); секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            for footer_row, segments in zip((height - 2, height - 1),
+            for footer_row, segments in zip((height - 1, height),
                                             footer_rows(settings_view, usage_view)):
                 footer_x = 2
                 for text, active in segments:
