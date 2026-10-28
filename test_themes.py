@@ -6,6 +6,16 @@ import curses
 import themes
 
 
+OPENCODE_THEMES = {
+    'aura', 'ayu', 'carbonfox', 'catppuccin', 'catppuccin-frappe',
+    'catppuccin-macchiato', 'cobalt2', 'cursor', 'dracula', 'everforest',
+    'flexoki', 'github', 'gruvbox', 'kanagawa', 'lucent-orng', 'material',
+    'matrix', 'mercury', 'monokai', 'nightowl', 'nord', 'one-dark', 'opencode',
+    'orng', 'osaka-jade', 'palenight', 'rosepine', 'solarized', 'synthwave84',
+    'system', 'tokyonight', 'vercel', 'vesper', 'zenburn',
+}
+
+
 class NormalizeThemeTests(unittest.TestCase):
     def test_exact_name_is_returned(self):
         for name in themes.THEME_NAMES:
@@ -22,6 +32,12 @@ class NormalizeThemeTests(unittest.TestCase):
         self.assertEqual(themes.normalize_theme(''), themes.DEFAULT_THEME)
         self.assertEqual(themes.normalize_theme(None), themes.DEFAULT_THEME)
         self.assertEqual(themes.normalize_theme('VAD'), themes.DEFAULT_THEME)
+
+    def test_all_opencode_builtin_themes_are_available(self):
+        self.assertTrue(OPENCODE_THEMES.issubset(themes.THEME_NAMES))
+
+    def test_theme_names_are_unique(self):
+        self.assertEqual(len(themes.THEME_NAMES), len(set(themes.THEME_NAMES)))
 
 
 class PaletteTests(unittest.TestCase):
@@ -114,6 +130,17 @@ class ApplyThemeTests(unittest.TestCase):
              patch('curses.COLORS', 256, create=True), \
              patch('curses.init_pair', side_effect=curses.error('bad pair')):
             themes.apply_theme('VAD-OS')
+
+    def test_every_theme_initializes_all_ten_pairs(self):
+        with patch('curses.start_color'), \
+             patch('curses.has_colors', return_value=True), \
+             patch('curses.COLORS', 256, create=True), \
+             patch('curses.init_pair') as init_pair:
+            for name in themes.THEME_NAMES:
+                with self.subTest(theme=name):
+                    init_pair.reset_mock()
+                    themes.apply_theme(name)
+                    self.assertEqual(init_pair.call_count, 10)
 
 
 if __name__ == '__main__':
