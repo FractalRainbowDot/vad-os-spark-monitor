@@ -114,7 +114,7 @@ def menu_lines(theme, display_name, selection, editing=False, input_text='', err
 
 
 def footer_rows(settings_view, usage_view):
-    """Return the two footer rows; the active view is marked with ●."""
+    """Return the two footer rows; the active view is highlighted in the UI."""
     if settings_view:
         first = [
             ('[v] Модели  ', False),
@@ -139,8 +139,7 @@ def footer_rows(settings_view, usage_view):
         ('[q] Выход', False),
     ]
     rows = (first, second)
-    return tuple([[(('● ' + text) if active else text, active) for text, active in row]
-                  for row in rows])
+    return tuple([[(text, active) for text, active in row] for row in rows])
 
 
 def footer_line(settings_view, usage_view, row=0):
@@ -844,7 +843,9 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 for text, active in segments:
                     if footer_x >= terminal_width - 1:
                         break
-                    attr = (color(3) | curses.A_BOLD | curses.A_REVERSE
+                    # Pair 7 is the theme accent (header/headings); reverse
+                    # turns it into a readable block for the active view.
+                    attr = (color(7) | curses.A_BOLD | curses.A_REVERSE
                             if active else color(1))
                     try:
                         screen.addnstr(footer_row, footer_x, text,

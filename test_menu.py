@@ -81,7 +81,7 @@ class FooterTests(unittest.TestCase):
     def test_models_view_highlights_models(self):
         first, _ = monitor.footer_rows(False, False)
         self.assertEqual([part for part, active in first if active],
-                         ['● [v] Модели  '])
+                         ['[v] Модели  '])
 
     def test_usage_view_keeps_litellm_label_and_highlights_it(self):
         first, _ = monitor.footer_rows(False, True)
@@ -89,14 +89,14 @@ class FooterTests(unittest.TestCase):
         self.assertIn('[l] LiteLLM', text)
         self.assertNotIn('[l] назад', text)
         self.assertEqual([part for part, active in first if active],
-                         ['● [l] LiteLLM  '])
+                         ['[l] LiteLLM  '])
 
     def test_settings_view_highlights_static(self):
         first, _ = monitor.footer_rows(True, False)
         text = ''.join(part for part, _ in first)
         self.assertIn('[s] Static', text)
         self.assertEqual([part for part, active in first if active],
-                         ['● [s] Static  '])
+                         ['[s] Static  '])
 
     def test_footer_line_selects_the_row(self):
         first, second = monitor.footer_rows(False, False)
