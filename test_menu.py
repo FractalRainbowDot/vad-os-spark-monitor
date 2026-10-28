@@ -22,6 +22,8 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(monitor.normalize_key('Ы'), 's')
         self.assertEqual(monitor.normalize_key('m'), 'm')
         self.assertEqual(monitor.normalize_key('M'), 'm')
+        self.assertEqual(monitor.normalize_key('м'), 'v')
+        self.assertEqual(monitor.normalize_key('к'), 'r')
 
 
 class DisplayNameTests(unittest.TestCase):
@@ -64,33 +66,55 @@ class ThemeCycleTests(unittest.TestCase):
 
 
 class FooterTests(unittest.TestCase):
-    def test_models_view_uses_static_label_and_highlights_models(self):
-        segments = monitor.footer_segments(False, False)
-        text = ''.join(part for part, _ in segments)
-        self.assertIn('[s] Static', text)
-        self.assertIn('[l] LiteLLM', text)
-        self.assertEqual([part for part, active in segments if active],
-                         ['● [Tab] модели  '])
+    def test_footer_has_two_rows_with_navigation_and_actions(self):
+        first, second = monitor.footer_rows(False, False)
+        first_text = ''.join(part for part, _ in first)
+        second_text = ''.join(part for part, _ in second)
+        self.assertIn('[v] Модели', first_text)
+        self.assertIn('[l] LiteLLM', first_text)
+        self.assertIn('[s] Static', first_text)
+        self.assertIn('[m] Меню', second_text)
+        self.assertIn('[h] Пояснения', second_text)
+        self.assertIn('[q] Выход', second_text)
+        self.assertNotIn('[-/+]', first_text + second_text)
+
+    def test_models_view_highlights_models(self):
+        first, _ = monitor.footer_rows(False, False)
+        self.assertEqual([part for part, active in first if active],
+                         ['● [v] Модели  '])
 
     def test_usage_view_changes_litellm_to_back(self):
-        segments = monitor.footer_segments(False, True)
-        text = ''.join(part for part, _ in segments)
+        first, _ = monitor.footer_rows(False, True)
+        text = ''.join(part for part, _ in first)
         self.assertIn('[l] назад', text)
         self.assertNotIn('[l] LiteLLM', text)
-        self.assertEqual([part for part, active in segments if active],
+        self.assertEqual([part for part, active in first if active],
                          ['● [l] назад  '])
 
-    def test_settings_view_highlights_back_and_keeps_static_controls(self):
-        segments = monitor.footer_segments(True, False)
-        text = ''.join(part for part, _ in segments)
-        self.assertIn('[s] назад', text)
-        self.assertNotIn('[s] Static', text)
-        self.assertEqual([part for part, active in segments if active],
-                         ['● [s] назад  '])
+    def test_settings_view_highlights_static(self):
+        first, _ = monitor.footer_rows(True, False)
+        text = ''.join(part for part, _ in first)
+        self.assertIn('[s] Static', text)
+        self.assertEqual([part for part, active in first if active],
+                         ['● [s] Static  '])
 
-    def test_footer_line_joins_the_segments(self):
-        self.assertEqual(monitor.footer_line(False, False),
-                         ''.join(part for part, _ in monitor.footer_segments(False, False)))
+    def test_footer_line_selects_the_row(self):
+        first, second = monitor.footer_rows(False, False)
+        self.assertEqual(monitor.footer_line(False, False, 0),
+                         ''.join(part for part, _ in first))
+        self.assertEqual(monitor.footer_line(False, False, 1),
+                         ''.join(part for part, _ in second))
+
+
+class RestartTests(unittest.TestCase):
+    def test_restart_only_after_an_installed_update(self):
+        self.assertTrue(monitor.restart_requested('r', {'status': 'updated'}))
+        for status in ('available', 'current', 'error', None):
+            with self.subTest(status=status):
+                self.assertFalse(monitor.restart_requested('r', {'status': status}))
+
+    def test_other_keys_do_not_restart(self):
+        self.assertFalse(monitor.restart_requested('q', {'status': 'updated'}))
 
 
 class MenuLinesTests(unittest.TestCase):

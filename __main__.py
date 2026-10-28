@@ -8,6 +8,7 @@ import curses
 import getpass
 import json
 import math
+import os
 import re
 import shutil
 import socket
@@ -112,49 +113,50 @@ def menu_lines(theme, display_name, selection, editing=False, input_text='', err
     return lines
 
 
-def footer_segments(settings_view, usage_view):
-    """Return footer text pieces and whether each is the active view."""
+def footer_rows(settings_view, usage_view):
+    """Return the two footer rows; the active view is marked with ●."""
     if settings_view:
-        parts = [
-            (' [-/+] частота  ', False),
-            ('[Tab] провайдеры/Spark  ', False),
-            ('[s] назад  ', True),
+        first = [
+            ('[v] Модели  ', False),
             ('[l] LiteLLM  ', False),
-            ('[m] меню  ', False),
-            ('[h] пояснения  ', False),
-            ('[q] выход', False),
+            ('[s] Static  ', True),
         ]
     elif usage_view:
-        parts = [
-            (' [-/+] частота  ', False),
-            ('[Tab] модели  ', False),
-            ('[s] Static  ', False),
+        first = [
+            ('[v] Модели  ', False),
             ('[l] назад  ', True),
-            ('[m] меню  ', False),
-            ('[h] пояснения  ', False),
-            ('[q] выход', False),
+            ('[s] Static  ', False),
         ]
     else:
-        parts = [
-            (' [-/+] частота  ', False),
-            ('[Tab] модели  ', True),
-            ('[s] Static  ', False),
+        first = [
+            ('[v] Модели  ', True),
             ('[l] LiteLLM  ', False),
-            ('[m] меню  ', False),
-            ('[h] пояснения  ', False),
-            ('[q] выход', False),
+            ('[s] Static  ', False),
         ]
-    return [(('● ' + text) if active else text, active) for text, active in parts]
+    second = [
+        ('[m] Меню  ', False),
+        ('[h] Пояснения  ', False),
+        ('[q] Выход', False),
+    ]
+    rows = (first, second)
+    return tuple([[(('● ' + text) if active else text, active) for text, active in row]
+                  for row in rows])
 
 
-def footer_line(settings_view, usage_view):
-    return ''.join(text for text, _ in footer_segments(settings_view, usage_view))
+def footer_line(settings_view, usage_view, row=0):
+    return ''.join(text for text, _ in footer_rows(settings_view, usage_view)[row])
+
+
+def restart_requested(key, update_state):
+    return key == 'r' and (update_state or {}).get('status') == 'updated'
 
 
 def normalize_key(key):
     return {'Q': 'q', 'й': 'q', 'Й': 'q', 'H': 'h', 'р': 'h', 'Р': 'h',
             'L': 'l', 'д': 'l', 'Д': 'l', 'S': 's', 'ы': 's', 'Ы': 's',
-            'M': 'm', 'm': 'm', 'ь': 'm', 'Ь': 'm', '−': '-'}.get(key, key)
+            'M': 'm', 'm': 'm', 'ь': 'm', 'Ь': 'm',
+            'V': 'v', 'v': 'v', 'м': 'v', 'М': 'v',
+            'R': 'r', 'r': 'r', 'к': 'r', 'К': 'r', '−': '-'}.get(key, key)
 
 
 def parse_metrics(text):
@@ -752,7 +754,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             badge = version_badge(update_state)
             version_prefix = f' {mode} | v{VERSION}'
             header = (version_prefix + ((' ' + badge) if badge else '') +
-                      f' | {datetime.now():%H:%M:%S} | {args.interval}ms')
+                      f' | {datetime.now():%H:%M:%S} | {args.interval}ms | [-/+] частота')
             put(header_height, header, color(7))
             if badge and len(version_prefix) < width:
                 try:
@@ -763,6 +765,9 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                     pass
             update_notice = notice(update_state)
             if update_notice:
+                if update_state.get('status') == 'updated':
+                    update_notice = (f"Обновлено до {update_state.get('version')} · "
+                                     '[r] перезапустить')
                 header_height += 1
                 put(header_height, ' ' + update_notice, color(3) | curses.A_BOLD)
             table_width = width
@@ -833,18 +838,20 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                                     '[s] — Static (статические настройки); секреты скрыты.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
-            footer_x = 2
-            for text, active in footer_segments(settings_view, usage_view):
-                if footer_x >= terminal_width - 1:
-                    break
-                attr = (color(3) | curses.A_BOLD | curses.A_REVERSE
-                        if active else color(1))
-                try:
-                    screen.addnstr(height - 1, footer_x, text,
-                                   terminal_width - footer_x - 1, attr)
-                except curses.error:
-                    pass
-                footer_x += len(text)
+            for footer_row, segments in zip((height - 2, height - 1),
+                                            footer_rows(settings_view, usage_view)):
+                footer_x = 2
+                for text, active in segments:
+                    if footer_x >= terminal_width - 1:
+                        break
+                    attr = (color(3) | curses.A_BOLD | curses.A_REVERSE
+                            if active else color(1))
+                    try:
+                        screen.addnstr(footer_row, footer_x, text,
+                                       terminal_width - footer_x - 1, attr)
+                    except curses.error:
+                        pass
+                    footer_x += len(text)
             if menu_open:
                 popup = menu_lines(theme, display_name, menu_selection,
                                    editing, menu_input, menu_error)
@@ -928,6 +935,12 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             if key == 'm':
                 menu_open, menu_selection, editing = True, 0, False
                 menu_input, menu_error = '', ''
+                continue
+            if restart_requested(key, update_state):
+                return 'restart'
+            if key == 'v':
+                usage_view = settings_view = False
+                embeddings, offset = False, 0
                 continue
             if key == 'q':
                 return
@@ -1190,6 +1203,7 @@ def main():
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     models = []
     exit_code = 0
+    restart = False
     with contextlib.ExitStack() as stack:
         try:
             # A dedicated foreground SSH child: no -f, persistent master,
@@ -1199,7 +1213,8 @@ def main():
                     models.append(create_model({'name': name, 'kind': kind, 'host': host,
                                                 'address': '127.0.0.1', 'port': remote_port}, args.user))
             if interactive:
-                curses.wrapper(run_dashboard, args, models, hosts, http, usage)
+                restart = curses.wrapper(run_dashboard, args, models, hosts, http,
+                                         usage) == 'restart'
             else:
                 run_dashboard(None, args, models, hosts, http, usage)
         except KeyboardInterrupt:
@@ -1211,6 +1226,12 @@ def main():
             usage.close()
             for model in models:
                 close_model(model)
+    if restart:
+        try:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except OSError as exc:
+            print(f'Ошибка перезапуска: {exc}', file=sys.stderr)
+            exit_code = 1
     return exit_code
 
 
