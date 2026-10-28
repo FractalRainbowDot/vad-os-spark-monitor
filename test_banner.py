@@ -65,6 +65,12 @@ class BlockTitleTests(unittest.TestCase):
     def test_lowercase_russian_is_uppercased_for_the_font(self):
         self.assertEqual(banner.block_title('привет'), banner.block_title('ПРИВЕТ'))
 
+    def test_problem_letters_have_distinct_glyphs(self):
+        self.assertEqual(banner.BLOCK_FONT['М'],
+                         ('10001', '11011', '10101', '10001', '10001'))
+        self.assertEqual(banner.BLOCK_FONT['Й'][0], '01110')
+        self.assertEqual(banner.BLOCK_FONT['Ё'][0], '01010')
+
     def test_supported_punctuation_renders(self):
         for char in "-_. /":
             with self.subTest(char=char):
