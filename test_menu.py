@@ -25,6 +25,10 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(monitor.normalize_key('M'), 'm')
         self.assertEqual(monitor.normalize_key('м'), 'v')
         self.assertEqual(monitor.normalize_key('к'), 'r')
+        self.assertEqual(monitor.normalize_key('х'), '[')
+        self.assertEqual(monitor.normalize_key('Х'), '{')
+        self.assertEqual(monitor.normalize_key('ъ'), ']')
+        self.assertEqual(monitor.normalize_key('Ъ'), '}')
 
 
 class TabTests(unittest.TestCase):

@@ -202,7 +202,8 @@ def normalize_key(key):
             'L': 'l', 'д': 'l', 'Д': 'l', 'S': 's', 'ы': 's', 'Ы': 's',
             'M': 'm', 'm': 'm', 'ь': 'm', 'Ь': 'm',
             'V': 'v', 'v': 'v', 'м': 'v', 'М': 'v',
-            'R': 'r', 'r': 'r', 'к': 'r', 'К': 'r', '−': '-'}.get(key, key)
+            'R': 'r', 'r': 'r', 'к': 'r', 'К': 'r', '−': '-',
+            'х': '[', 'Х': '{', 'ъ': ']', 'Ъ': '}'}.get(key, key)
 
 
 def parse_metrics(text):
@@ -947,19 +948,19 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 else:
                     put(height - 5, ' Автопоиск vLLM/gb10 каждые 30s. [m] — меню темы и имени; '
                                     '[s] — Static (статические настройки); секреты скрыты.')
-                    put(height - 2, ' [j/k] — выбрать карточку; клавиши [ и ] — переместить её.')
+                    put(height - 2, ' [ и ] — выбрать карточку; { и } — переместить её.')
                 put(height - 4, ' GPU: T.Limit ≤5°C жёлтый, ≤0°C красный; без T.Limit: 80/90°C. RAM свободно <4/<1GiB; KV ≥95/99%.')
                 put(height - 3, ' — = нет наблюдений. Средние до 60s, не p95. Qwen gb10: токены/s по завершениям. При ошибке данные УСТАРЕЛИ.')
             for footer_row, segments in zip((height - 1, height),
                                             footer_rows(settings_view, usage_view)):
                 footer_x = 2
-                for text, active in segments:
+                for text, is_active in segments:
                     if footer_x >= terminal_width - 1:
                         break
                     # Pair 7 is the theme accent (header/headings); reverse
                     # turns it into a readable block for the active view.
                     attr = (color(7) | curses.A_BOLD | curses.A_REVERSE
-                            if active else color(1))
+                            if is_active else color(1))
                     try:
                         screen.addnstr(footer_row, footer_x, text,
                                        terminal_width - footer_x - 1, attr)
@@ -1066,15 +1067,15 @@ def run_dashboard(screen, args, models, hosts, http, usage):
                 usage_period, offset = key, 0
             elif key == 'h':
                 show_help = not show_help
-            elif not usage_view and not settings_view and key in ('j', 'J', 'k', 'K'):
+            elif not usage_view and not settings_view and key in ('[', ']'):
                 if active:
                     keys = [model_key(model) for model in active]
                     index = keys.index(card_focus_key) if card_focus_key in keys else 0
-                    step = 1 if key in ('j', 'J') else -1
+                    step = 1 if key == ']' else -1
                     card_focus_key = keys[(index + step) % len(keys)]
-            elif not usage_view and not settings_view and key in ('[', ']'):
+            elif not usage_view and not settings_view and key in ('{', '}'):
                 if active and card_focus_key:
-                    step = -1 if key == '[' else 1
+                    step = -1 if key == '{' else 1
                     sync_card_order(models, card_order)
                     card_order = move_card(card_order, active, card_focus_key, step)
                     try:
