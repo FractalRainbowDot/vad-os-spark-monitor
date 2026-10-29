@@ -169,6 +169,11 @@ def footer_rows(settings_view, usage_view):
             ('[s] Static  ', False),
         ]
     second = []
+    if not usage_view and not settings_view:
+        second.extend([
+            ('[ / ] Выбор  ', False),
+            ('{ / } Порядок  ', False),
+        ])
     if not usage_view:
         second.append(('[tab] Смена  ', False))
     second.extend([

@@ -99,15 +99,26 @@ class FooterTests(unittest.TestCase):
         self.assertIn('[v] Модели', first_text)
         self.assertIn('[l] LiteLLM', first_text)
         self.assertIn('[s] Static', first_text)
+        self.assertIn('[ / ] Выбор', second_text)
+        self.assertIn('{ / } Порядок', second_text)
+        self.assertLess(second_text.index('[ / ] Выбор'), second_text.index('[tab] Смена'))
         self.assertIn('[tab] Смена', second_text)
         self.assertIn('[m] Меню', second_text)
         self.assertIn('[h] Пояснения', second_text)
         self.assertIn('[q] Выход', second_text)
         self.assertNotIn('[-/+]', first_text + second_text)
 
-    def test_litellm_does_not_advertise_inactive_tab(self):
+    def test_litellm_does_not_advertise_inactive_tab_or_cards(self):
         _, second = monitor.footer_rows(False, True)
-        self.assertNotIn('[tab] Смена', ''.join(part for part, _ in second))
+        text = ''.join(part for part, _ in second)
+        self.assertNotIn('[tab] Смена', text)
+        self.assertNotIn('[ / ] Выбор', text)
+
+    def test_static_does_not_advertise_card_controls(self):
+        _, second = monitor.footer_rows(True, False)
+        text = ''.join(part for part, _ in second)
+        self.assertIn('[tab] Смена', text)
+        self.assertNotIn('[ / ] Выбор', text)
 
     def test_models_view_highlights_models(self):
         first, _ = monitor.footer_rows(False, False)
