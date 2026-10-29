@@ -1,9 +1,13 @@
-"""Owner-only .env persistence, without executing shell expressions."""
+"""Owner-only .env persistence, without executing shell expressions.
+
+Unix uses mode 600; Windows uses an owner-only ACL.
+"""
 
 import os
 from pathlib import Path
-import stat
 import tempfile
+
+from platform_utils import is_regular, is_windows, owned_by_current_user, read_flags, secure_file
 
 
 def key_path():
@@ -24,15 +28,17 @@ def save_api_key(value, path=None):
     value = validate_key(value)
     path = Path(path) if path is not None else key_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink():
+        raise ValueError('Файл .env не должен быть символической ссылкой')
     lines = []
     try:
-        previous = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        previous = os.open(path, read_flags())
     except FileNotFoundError:
         pass
     else:
         with os.fdopen(previous, 'r', encoding='utf-8') as stream:
             info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            if not is_regular(info) or not owned_by_current_user(info):
                 raise ValueError('Файл .env должен принадлежать текущему пользователю')
             text = stream.read(16385)
             if len(text) > 16384:
@@ -51,6 +57,7 @@ def save_api_key(value, path=None):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        secure_file(path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -61,15 +68,17 @@ def load_api_key(path=None):
     if environment:
         return validate_key(environment)
     path = Path(path) if path is not None else key_path()
+    if path.is_symlink():
+        raise ValueError('Файл .env не должен быть символической ссылкой')
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(path, read_flags())
     except FileNotFoundError:
         return ''
     with os.fdopen(fd, 'r', encoding='utf-8') as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        if not is_regular(info) or not owned_by_current_user(info):
             raise ValueError('Файл ключа должен быть обычным файлом текущего пользователя')
-        if info.st_mode & 0o077:
+        if not is_windows() and info.st_mode & 0o077:
             raise ValueError(f'У файла ключа слишком широкие права. Выполните: chmod 600 "{path}"')
         text = stream.read(16385)
         if len(text) > 16384:

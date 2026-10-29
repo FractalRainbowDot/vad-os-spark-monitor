@@ -4,7 +4,10 @@
 import argparse
 import concurrent.futures
 import contextlib
-import curses
+try:
+    import curses
+except ImportError:
+    curses = None
 import getpass
 import json
 import math
@@ -39,6 +42,23 @@ SAMPLE = re.compile(
 
 # A release published while the monitor is running must still show its badge.
 UPDATE_CHECK_SECONDS = 300
+
+
+def ssh_binary():
+    """Find ssh, including the standard Windows OpenSSH feature path."""
+    if os.name == 'nt':
+        found = shutil.which('ssh')
+        if found:
+            return found
+        windows = os.environ.get('WINDIR', r'C:\Windows')
+        candidate = os.path.join(windows, 'System32', 'OpenSSH', 'ssh.exe')
+        if os.path.isfile(candidate):
+            return candidate
+        return None
+    return shutil.which('ssh')
+
+
+SSH = ssh_binary() if os.name == 'nt' else 'ssh'
 
 # A short read-only probe, at most once per five seconds per host. No agent,
 # service, package or file is installed on the machines.
@@ -523,7 +543,7 @@ def model_tables(models, width, show_help, now, focus_key=None):
 def read_hardware(host, user):
     try:
         proc = subprocess.run([
-            'ssh', '-T', '-S', 'none', '-o', 'ControlMaster=no',
+            SSH, '-T', '-S', 'none', '-o', 'ControlMaster=no',
             '-o', 'ControlPersist=no', '-o', 'ForkAfterAuthentication=no',
             '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3',
             '-o', 'ServerAliveInterval=2', '-o', 'ServerAliveCountMax=1',
@@ -1165,7 +1185,7 @@ def create_model(descriptor, user, automatic=False, host_label=None):
 
 def start_tunnel(host, user, local_port, remote_port, errors, remote_address='127.0.0.1'):
     return subprocess.Popen([
-        'ssh', '-N', '-T', '-S', 'none',
+        SSH, '-N', '-T', '-S', 'none',
         '-o', 'ControlMaster=no', '-o', 'ControlPersist=no',
         '-o', 'ForkAfterAuthentication=no', '-o', 'BatchMode=yes',
         '-o', 'ExitOnForwardFailure=yes', '-o', 'ConnectTimeout=5',
@@ -1252,12 +1272,14 @@ def main():
         except KeyboardInterrupt:
             print('\nОтменено.', file=sys.stderr)
             return 130
-        print(f'Ключ сохранён: {key_path()} (права 600).')
+        rights = ('доступ только текущему пользователю' if os.name == 'nt'
+                  else 'права 600')
+        print(f'Ключ сохранён: {key_path()} ({rights}).')
         return 0
     if not 250 <= args.interval <= 60000:
         parser.error('--interval must be between 250 and 60000 ms')
-    if not shutil.which('ssh'):
-        parser.error('ssh client not found')
+    if not ssh_binary():
+        parser.error('ssh client not found; on Windows enable the OpenSSH Client feature')
     archive = archive_path()
     args.archive = archive
     if args.check_update:
@@ -1333,6 +1355,10 @@ def main():
             usage.close()
 
     interactive = sys.stdout.isatty() and not args.once
+    if interactive and curses is None:
+        print('Модуль curses не установлен. На Windows выполните: '
+              'python -m pip install --user windows-curses', file=sys.stderr)
+        return 1
     # Ignore HTTP proxy environment variables for the local tunnel endpoint.
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     models = []
@@ -1362,7 +1388,10 @@ def main():
                 close_model(model)
     if restart:
         try:
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            if os.name == 'nt':
+                subprocess.Popen([sys.executable] + sys.argv, close_fds=True)
+            else:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
         except OSError as exc:
             print(f'Ошибка перезапуска: {exc}', file=sys.stderr)
             exit_code = 1

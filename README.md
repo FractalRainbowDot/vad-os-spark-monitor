@@ -8,10 +8,12 @@ tailnet через локальный клиент Tailscale и определя
 
 ## Требования
 
-- Linux или macOS. На Windows используйте WSL.
+- Linux, macOS или Windows 10/11. Для Windows есть нативный установщик;
+  WSL2 тоже поддерживается.
 - Tailscale, выполненный вход и доступ к тому же tailnet, где находятся Spark.
 - SSH-доступ к Spark; по умолчанию пользователь `nvidia`.
-- Python 3.10+ с модулем `curses` — только для Linux-варианта `.pyz`.
+- Python 3.10+ с модулем `curses` — для Linux/Windows-варианта `.pyz`.
+  На Windows установщик ставит `windows-curses`.
 - Ключ LiteLLM с доступом к статистике.
 
 Проверка Python на Linux/macOS:
@@ -53,6 +55,25 @@ spark-monitor
 
 Если `~/.local/bin` отсутствует в `PATH`, скрипт покажет нужную строку
 `export PATH=...`. Для macOS без Python используйте ZIP-сборку ниже.
+
+## Windows 10/11
+
+Нативное приложение без WSL. В PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.ps1 | iex
+```
+
+Установщик проверяет Python, ставит `windows-curses`, проверяет SHA-256 и создаёт
+команду `spark-monitor`. Нужны OpenSSH Client, Tailscale и SSH-ключ, разрешённый
+на Spark. Подробности — в [`README-Windows.md`](README-Windows.md).
+
+После установки:
+
+```powershell
+spark-monitor --save-key
+spark-monitor
+```
 
 ## Установка и запуск
 

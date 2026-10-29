@@ -2,15 +2,17 @@
 
 Only the allow-listed keys ``theme``, ``display_name`` and ``card_order`` are
 read or written. The file is stored next to the running program, is never
-shared, and is written atomically with mode 600.
+shared, and is written atomically with mode 600 on Unix or an owner-only
+ACL on Windows.
 """
 
 import errno
 import json
 import os
 from pathlib import Path
-import stat
 import tempfile
+
+from platform_utils import is_regular, owned_by_current_user, read_flags, secure_fd, secure_file
 
 
 CONFIG_NAME = '.spark-monitor.json'
@@ -61,8 +63,10 @@ def load_preferences(path=None):
     another user is rejected.
     """
     path = Path(path) if path is not None else config_path()
+    if path.is_symlink():
+        raise ValueError('Файл настроек не должен быть символической ссылкой')
     try:
-        handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        handle = os.open(path, read_flags())
     except FileNotFoundError:
         return {}
     except OSError as error:
@@ -71,7 +75,7 @@ def load_preferences(path=None):
         raise
     with os.fdopen(handle, 'rb') as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        if not is_regular(info) or not owned_by_current_user(info):
             raise ValueError('Файл настроек должен быть обычным файлом текущего пользователя')
         data = stream.read(MAX_SIZE + 1)
     if len(data) > MAX_SIZE:
@@ -122,7 +126,7 @@ def save_preferences(values, path=None):
     handle, temporary = tempfile.mkstemp(prefix='.spark-monitor-', suffix='.json',
                                          dir=path.parent)
     try:
-        os.fchmod(handle, 0o600)
+        secure_fd(handle)
         with os.fdopen(handle, 'w', encoding='utf-8') as stream:
             handle = -1
             stream.write(payload)
@@ -130,6 +134,7 @@ def save_preferences(values, path=None):
             os.fsync(stream.fileno())
         # os.replace does not follow a symlink at the destination.
         os.replace(temporary, path)
+        secure_file(path)
     finally:
         if handle != -1:
             os.close(handle)

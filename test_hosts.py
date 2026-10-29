@@ -58,6 +58,15 @@ class HostDiscoveryTests(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn('Tailscale', error)
 
+    def test_windows_standard_tailscale_path_is_used(self):
+        def exists(candidate):
+            return str(candidate).endswith('Tailscale\\tailscale.exe')
+
+        with patch('shutil.which', return_value=None), \
+             patch.object(hosts.os, 'name', 'nt'), \
+             patch.object(hosts.Path, 'is_file', exists):
+            self.assertEqual(hosts.tailscale_binary(), hosts.WINDOWS_TAILSCALE[0])
+
     def test_no_sparks_is_reported(self):
         data = self.payload([peer('workstation')])
         with patch('shutil.which', return_value='/usr/bin/tailscale'), \

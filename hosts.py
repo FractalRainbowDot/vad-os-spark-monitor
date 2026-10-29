@@ -8,16 +8,31 @@ used. SSH access remains the user's own responsibility.
 
 import ipaddress
 import json
+import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 
 DEFAULT_PATTERN = r'(?:^|[-_])spark(?:[-_]|$|\d)'
 MACOS_TAILSCALE = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+WINDOWS_TAILSCALE = (
+    r'C:\Program Files\Tailscale\tailscale.exe',
+    r'C:\Program Files (x86)\Tailscale\tailscale.exe',
+)
 
 
 def tailscale_binary():
-    return shutil.which('tailscale') or (MACOS_TAILSCALE if shutil.which(MACOS_TAILSCALE) else None)
+    found = shutil.which('tailscale')
+    if found:
+        return found
+    candidates = [MACOS_TAILSCALE]
+    if os.name == 'nt':
+        candidates.extend(WINDOWS_TAILSCALE)
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return candidate
+    return None
 
 
 def discover_hosts(pattern=DEFAULT_PATTERN, timeout=6):
