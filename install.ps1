@@ -16,7 +16,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $Repo = if ($env:SPARK_MONITOR_REPO) { $env:SPARK_MONITOR_REPO } else { 'FractalRainbowDot/vad-os-spark-monitor' }
-$Asset = 'spark-monitor.pyz'
+# The Windows archive is fetched first; the universal archive keeps releases
+# without it working and is also what older installations already use.
+$Asset = if ($env:SPARK_MONITOR_ASSET) { $env:SPARK_MONITOR_ASSET } else { 'spark-monitor-windows.pyz' }
+$FallbackAsset = 'spark-monitor.pyz'
+# Installed name stays stable so upgrades keep replacing the same file next to .env.
+$LocalName = 'spark-monitor.pyz'
 $Root = if ($env:SPARK_MONITOR_RELEASE_URL) {
     $env:SPARK_MONITOR_RELEASE_URL.TrimEnd('/')
 } else {
@@ -39,39 +44,47 @@ function Fail([string]$Message) {
 }
 
 function Resolve-Python {
-    $candidates = @()
-    if ($env:PYTHON) {
-        $command = Get-Command $env:PYTHON -ErrorAction SilentlyContinue
-        if ($command) {
-            $candidates += $command.Source
-        } elseif (Test-Path -LiteralPath $env:PYTHON) {
-            $candidates += (Resolve-Path -LiteralPath $env:PYTHON).Path
+    # Failed probes (for example `py -3` without a 3.x install) write to stderr,
+    # which ErrorActionPreference 'Stop' would turn into a terminating error.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $candidates = @()
+        if ($env:PYTHON) {
+            $command = Get-Command $env:PYTHON -ErrorAction SilentlyContinue
+            if ($command) {
+                $candidates += $command.Source
+            } elseif (Test-Path -LiteralPath $env:PYTHON) {
+                $candidates += (Resolve-Path -LiteralPath $env:PYTHON).Path
+            }
         }
-    }
 
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py) {
-        $path = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $path) {
-            $candidates += $path.Trim()
+        $py = Get-Command py -ErrorAction SilentlyContinue
+        if ($py) {
+            $path = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $path) {
+                $candidates += $path.Trim()
+            }
         }
-    }
 
-    foreach ($name in @('python', 'python3')) {
-        $command = Get-Command $name -ErrorAction SilentlyContinue
-        if (-not $command -or $command.Source -like '*\WindowsApps\*') {
-            continue
+        foreach ($name in @('python', 'python3')) {
+            $command = Get-Command $name -ErrorAction SilentlyContinue
+            if (-not $command -or $command.Source -like '*\WindowsApps\*') {
+                continue
+            }
+            $path = & $command.Source -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $path) {
+                $candidates += $path.Trim()
+            }
         }
-        $path = & $command.Source -c "import sys; print(sys.executable)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $path) {
-            $candidates += $path.Trim()
-        }
-    }
 
-    foreach ($candidate in $candidates) {
-        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
-            return (Resolve-Path -LiteralPath $candidate).Path
+        foreach ($candidate in $candidates) {
+            if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+                return (Resolve-Path -LiteralPath $candidate).Path
+            }
         }
+    } finally {
+        $ErrorActionPreference = $previous
     }
     Fail 'Python 3.10+ not found. Install it from https://www.python.org/downloads/windows/ and try again.'
 }
@@ -92,14 +105,30 @@ if ($LASTEXITCODE -ne 0) {
     Fail 'Python 3.10 or newer is required.'
 }
 
-& $Python -c "import curses" 2>$null
+# Check for the compiled _curses module instead of importing the curses package:
+# a failed import prints a traceback to stderr, which ErrorActionPreference
+# 'Stop' turns into a terminating error.
+& $Python -c "import importlib.util as u, sys; sys.exit(0 if u.find_spec('_curses') else 1)"
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'Installing the windows-curses package...'
-    & $Python -m pip install --user --upgrade windows-curses
-    if ($LASTEXITCODE -ne 0) {
+    $inVenv = & $Python -c "import sys; print('1' if sys.prefix != sys.base_prefix else '0')"
+    $pipArgs = @('-m', 'pip', 'install', '--upgrade', '--disable-pip-version-check')
+    if ($inVenv -ne '1') {
+        $pipArgs += '--user'
+    }
+    $pipArgs += 'windows-curses'
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Python @pipArgs
+        $pipCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($pipCode -ne 0) {
         Fail 'Could not install windows-curses. Check pip and the internet connection.'
     }
-    & $Python -c "import curses" 2>$null
+    & $Python -c "import importlib.util as u, sys; sys.exit(0 if u.find_spec('_curses') else 1)"
     if ($LASTEXITCODE -ne 0) {
         Fail 'windows-curses is still unavailable after installation.'
     }
@@ -124,12 +153,29 @@ if (-not $tailscale -and -not ($tailscalePaths | Where-Object { Test-Path -Liter
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('spark-monitor-install-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
-    $assetPath = Join-Path $tmp $Asset
-    $checksumPath = Join-Path $tmp ($Asset + '.sha256')
+    $assetPath = Join-Path $tmp $LocalName
+    $checksumPath = Join-Path $tmp ($LocalName + '.sha256')
 
-    Write-Host "Downloading $Root/$Asset ..."
-    Invoke-WebRequest -UseBasicParsing -Uri "$Root/$Asset" -OutFile $assetPath
-    Invoke-WebRequest -UseBasicParsing -Uri "$Root/$Asset.sha256" -OutFile $checksumPath
+    $downloaded = ''
+    foreach ($name in @($Asset, $FallbackAsset)) {
+        if ($downloaded) {
+            break
+        }
+        if (-not $name) {
+            continue
+        }
+        Write-Host "Downloading $Root/$name ..."
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "$Root/$name" -OutFile $assetPath
+            Invoke-WebRequest -UseBasicParsing -Uri "$Root/$name.sha256" -OutFile $checksumPath
+            $downloaded = $name
+        } catch {
+            Write-Host "Asset $name is not available in this release."
+        }
+    }
+    if (-not $downloaded) {
+        Fail "Could not download a monitor build from $Root."
+    }
 
     $checksumText = Get-Content -LiteralPath $checksumPath -Raw
     $checksumParts = $checksumText -split '\s+'
@@ -155,7 +201,7 @@ try {
 
     New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-    $target = Join-Path $DataDir $Asset
+    $target = Join-Path $DataDir $LocalName
     if (Test-Path -LiteralPath $target) {
         Copy-Item -LiteralPath $target -Destination ($target + '.prev') -Force
     }
@@ -199,8 +245,16 @@ exit /b %errorlevel%
 
     $icacls = Get-Command icacls -ErrorAction SilentlyContinue
     if ($icacls -and $env:USERNAME) {
-        & $icacls.Source $DataDir /inheritance:r /grant:r "$env:USERNAME:(OI)(CI)F" |
-            Out-Null
+        # "user:(OI)(CI)F" must be built with +: "$env:USERNAME:(OI)(CI)F" would
+        # parse the colon as part of the variable name and expand to just the ACL.
+        $grant = $env:USERNAME + ':(OI)(CI)F'
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $icacls.Source $DataDir /inheritance:r /grant:r $grant | Out-Null
+        } finally {
+            $ErrorActionPreference = $previous
+        }
     }
 
     $version = (& $Python $target --version | Select-Object -First 1)

@@ -19,6 +19,36 @@
 - Tailscale для Windows, вход в тот же tailnet, где находятся Spark.
 - SSH-ключ, разрешённый на Spark. Монитор не копирует ключи и не хранит пароль.
 
+## Запуск из клона репозитория
+
+Отдельный шаг установки зависимостей не нужен:
+
+```powershell
+git clone https://github.com/FractalRainbowDot/vad-os-spark-monitor.git
+cd vad-os-spark-monitor
+.\run.cmd
+```
+
+`run.cmd` — обёртка над `run.ps1`, которая:
+
+- находит Python 3.10+ (`py -3`, затем `python`, `python3`);
+- при первом запуске ставит `windows-curses` через pip: в user site, а внутри
+  виртуального окружения — без `--user`;
+- включает `PYTHONUTF8=1`, чтобы рамки и кириллица рисовались правильно;
+- запускает монитор из исходников (`__main__.py`).
+
+Зависимости описаны в `requirements.txt`. Ключ LiteLLM сохраняется один раз:
+
+```powershell
+.\run.ps1 --save-key
+.\run.cmd
+```
+
+`.env` и `.spark-monitor.json` создаются рядом с исходниками и исключены из git.
+Монитор, запущенный из исходников, не проверяет автообновление: обновляется
+только файл `.pyz`. Для постоянного использования поставьте релиз через
+`install.ps1` ниже.
+
 ## Установка
 
 В PowerShell:
@@ -32,9 +62,11 @@ irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/mai
 - находит Python 3.10+;
 - при необходимости устанавливает пакет `windows-curses`;
 - проверяет, что OpenSSH и Tailscale доступны;
-- скачивает последний `spark-monitor.pyz`;
+- скачивает windows-сборку `spark-monitor-windows.pyz` (если её нет в релизе —
+  универсальный `spark-monitor.pyz`);
 - проверяет SHA-256;
-- устанавливает программу в `%LOCALAPPDATA%\vad-os-spark-monitor`;
+- устанавливает программу в `%LOCALAPPDATA%\vad-os-spark-monitor` под именем
+  `spark-monitor.pyz`;
 - создаёт команду `spark-monitor` и добавляет её в PATH пользователя.
 
 Если команда `spark-monitor` не видна сразу, откройте новый терминал.
@@ -62,13 +94,17 @@ spark-monitor
 
 ## Ручная установка
 
-Если установщик не подходит:
+Если установщик не подходит, скачайте из Releases `spark-monitor-windows.pyz`
+и запустите:
 
 ```powershell
-py -3 -m pip install --user windows-curses
-py -3 spark-monitor.pyz --save-key
-py -3 spark-monitor.pyz
+py -3 spark-monitor-windows.pyz --save-key
+py -3 spark-monitor-windows.pyz
 ```
+
+`windows-curses` можно не ставить вручную: при первом интерактивном запуске
+монитор сам вызовет pip, если модуля нет. Файл можно переименовать в
+`spark-monitor.pyz` — имя не влияет на работу.
 
 Для полноценной команды `spark-monitor` используйте `install.ps1`. Автообновление
 работает при запуске `.pyz`; после обновления нажмите `[r]` в мониторе.

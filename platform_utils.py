@@ -1,12 +1,52 @@
 """Small cross-platform helpers for Linux, macOS and native Windows."""
 
+import importlib
 import os
 import stat
 import subprocess
+import sys
 
 
 def is_windows():
     return os.name == 'nt'
+
+
+def in_virtualenv():
+    """True inside a venv, where pip refuses --user installs."""
+    return (sys.prefix != getattr(sys, 'base_prefix', sys.prefix)
+            or bool(os.environ.get('VIRTUAL_ENV')))
+
+
+def curses_available():
+    try:
+        import curses  # noqa: F401 - imported only to check availability
+    except ImportError:
+        return False
+    return True
+
+
+def install_windows_curses(timeout=300):
+    """Fetch the windows-curses wheel with pip; True when curses becomes usable.
+
+    Windows Python ships without curses, so a fresh checkout has no TUI.  The
+    package is dependency plumbing rather than application code: it is
+    installed once into the user site (or the active venv) and then reused.
+    """
+    if not is_windows():
+        return False
+    command = [sys.executable, '-m', 'pip', 'install', '--upgrade',
+               '--disable-pip-version-check']
+    if not in_virtualenv():
+        command.append('--user')
+    command.append('windows-curses')
+    try:
+        completed = subprocess.run(command, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if completed.returncode != 0:
+        return False
+    importlib.invalidate_caches()
+    return curses_available()
 
 
 def read_flags():

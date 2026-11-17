@@ -12,7 +12,11 @@
 set -eu
 
 REPO="${SPARK_MONITOR_REPO:-FractalRainbowDot/vad-os-spark-monitor}"
-ASSET="spark-monitor.pyz"
+# One archive per OS; the universal archive still exists for older releases.
+FALLBACK_ASSET="spark-monitor.pyz"
+# The installed file keeps a stable name, so upgrades replace the same .pyz
+# that sits next to .env.
+LOCAL_NAME="spark-monitor.pyz"
 BASE="${SPARK_MONITOR_RELEASE_URL:-https://github.com/$REPO/releases/latest/download}"
 DATA_DIR="${SPARK_MONITOR_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/vad-os-spark-monitor}"
 BIN_DIR="${SPARK_MONITOR_BIN:-$HOME/.local/bin}"
@@ -45,7 +49,8 @@ command -v "$PYTHON" >/dev/null 2>&1 || die "не найден $PYTHON"
 command -v uname >/dev/null 2>&1 || die 'не найден uname'
 
 case "$(uname -s)" in
-    Linux|Darwin) ;;
+    Linux) ASSET='spark-monitor-linux.pyz' ;;
+    Darwin) ASSET='spark-monitor-macos.pyz' ;;
     *) die 'поддерживаются Linux и macOS' ;;
 esac
 
@@ -57,27 +62,33 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/spark-monitor-install.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 printf 'Скачиваю последний релиз…\n'
-curl -fsSL --retry 3 --connect-timeout 10 "$BASE/$ASSET" -o "$tmp/$ASSET" \
-    || die 'не удалось скачать spark-monitor.pyz'
-curl -fsSL --retry 3 --connect-timeout 10 "$BASE/$ASSET.sha256" -o "$tmp/$ASSET.sha256" \
-    || die 'не удалось скачать checksum'
+download_asset() {
+    curl -fsSL --retry 3 --connect-timeout 10 "$BASE/$1" -o "$tmp/$LOCAL_NAME" \
+        && curl -fsSL --retry 3 --connect-timeout 10 "$BASE/$1.sha256" \
+            -o "$tmp/$LOCAL_NAME.sha256"
+}
 
-expected="$(awk 'NR == 1 { print $1 }' "$tmp/$ASSET.sha256")"
+if ! download_asset "$ASSET"; then
+    printf 'Сборка %s недоступна в релизе, скачиваю %s\n' "$ASSET" "$FALLBACK_ASSET" >&2
+    download_asset "$FALLBACK_ASSET" || die 'не удалось скачать сборку монитора'
+fi
+
+expected="$(awk 'NR == 1 { print $1 }' "$tmp/$LOCAL_NAME.sha256")"
 case "$expected" in
     ''|*[!0-9a-fA-F]*) die 'checksum имеет неверный формат' ;;
 esac
 [ "${#expected}" -eq 64 ] || die 'checksum имеет неверную длину'
 
 if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$tmp/$ASSET" | awk '{ print $1 }')"
+    actual="$(sha256sum "$tmp/$LOCAL_NAME" | awk '{ print $1 }')"
 elif command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "$tmp/$ASSET" | awk '{ print $1 }')"
+    actual="$(shasum -a 256 "$tmp/$LOCAL_NAME" | awk '{ print $1 }')"
 else
     die 'нужен sha256sum или shasum'
 fi
 [ "$actual" = "$expected" ] || die 'SHA-256 не совпал; установка отменена'
 
-if ! "$PYTHON" - "$tmp/$ASSET" <<'PY'
+if ! "$PYTHON" - "$tmp/$LOCAL_NAME" <<'PY'
 import sys
 import zipfile
 
@@ -96,11 +107,11 @@ fi
 mkdir -p "$DATA_DIR" "$BIN_DIR"
 chmod 700 "$DATA_DIR" 2>/dev/null || true
 
-target="$DATA_DIR/$ASSET"
+target="$DATA_DIR/$LOCAL_NAME"
 if [ -f "$target" ]; then
     cp -p "$target" "$target.prev" 2>/dev/null || true
 fi
-install -m 755 "$tmp/$ASSET" "$target" || die "не удалось записать $target"
+install -m 755 "$tmp/$LOCAL_NAME" "$target" || die "не удалось записать $target"
 
 launcher="$BIN_DIR/spark-monitor"
 launcher_tmp="$BIN_DIR/.spark-monitor-launcher.$$"

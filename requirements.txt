@@ -1,0 +1,4 @@
+# The monitor itself needs only the Python standard library.
+# Windows Python ships without curses, so the TUI adds this wheel there;
+# run.cmd / run.ps1 and install.ps1 install it automatically on first launch.
+windows-curses; sys_platform == "win32"

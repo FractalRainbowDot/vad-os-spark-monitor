@@ -153,5 +153,50 @@ class PerformUpdateTests(unittest.TestCase):
         self.assertIsNone(checksum)
 
 
+class PlatformAssetTests(unittest.TestCase):
+    def test_every_supported_platform_has_its_own_archive(self):
+        self.assertEqual(updater.platform_asset('win32'), 'spark-monitor-windows.pyz')
+        self.assertEqual(updater.platform_asset('linux'), 'spark-monitor-linux.pyz')
+        self.assertEqual(updater.platform_asset('darwin'), 'spark-monitor-macos.pyz')
+
+    def test_unknown_platform_uses_the_universal_archive(self):
+        self.assertEqual(updater.platform_asset('freebsd13'), updater.UNIVERSAL_ASSET)
+        self.assertEqual(updater.platform_asset(''), updater.UNIVERSAL_ASSET)
+
+    def test_release_prefers_the_platform_archive(self):
+        digest = 'b' * 64
+        payload = {'tag_name': 'v9.0.0', 'assets': [
+            {'name': 'spark-monitor-windows.pyz',
+             'browser_download_url': 'https://example.invalid/win',
+             'digest': 'sha256:' + digest},
+            {'name': 'spark-monitor.pyz',
+             'browser_download_url': 'https://example.invalid/all'}]}
+        with patch('updater._open', return_value=io.BytesIO(json.dumps(payload).encode())):
+            _, selected, checksum = updater._release('owner/repo', 5, 'spark-monitor-windows.pyz')
+        self.assertEqual(selected['name'], 'spark-monitor-windows.pyz')
+        self.assertEqual(checksum, digest)
+
+    def test_release_falls_back_to_the_universal_archive(self):
+        payload = {'tag_name': 'v9.0.0', 'assets': [
+            {'name': 'spark-monitor.pyz', 'browser_download_url': 'https://example.invalid/all'}]}
+        with patch('updater._open', return_value=io.BytesIO(json.dumps(payload).encode())):
+            _, selected, checksum = updater._release('owner/repo', 5, 'spark-monitor-windows.pyz')
+        self.assertEqual(selected['name'], 'spark-monitor.pyz')
+        self.assertIsNone(checksum)
+
+    def test_release_without_any_archive_is_an_error(self):
+        payload = {'tag_name': 'v9.0.0', 'assets': []}
+        with patch('updater._open', return_value=io.BytesIO(json.dumps(payload).encode())):
+            with self.assertRaises(ValueError):
+                updater._release('owner/repo', 5, 'spark-monitor-windows.pyz')
+
+    def test_update_requests_the_platform_archive(self):
+        payload = {'tag_name': 'v1.0.0', 'assets': []}
+        with patch('updater.platform_asset', return_value='spark-monitor-windows.pyz'), \
+             patch('updater._release', return_value=(payload, {}, None)) as release:
+            updater.perform_update('x.pyz', current='9.9.9')
+        self.assertEqual(release.call_args.args[2], 'spark-monitor-windows.pyz')
+
+
 if __name__ == '__main__':
     unittest.main()

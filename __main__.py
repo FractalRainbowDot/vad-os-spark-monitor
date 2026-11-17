@@ -33,6 +33,7 @@ from updater import VERSION, notice, perform_update, should_recheck, version_bad
 from banner import TITLE, title_banner
 from preferences import MAX_DISPLAY_NAME, load_preferences, save_preferences
 from themes import THEME_NAMES, apply_theme, normalize_theme
+from platform_utils import install_windows_curses, is_windows
 
 
 SAMPLE = re.compile(
@@ -1231,6 +1232,27 @@ def manual_hosts(args):
     return endpoints, hosts
 
 
+def ensure_curses():
+    """Return curses, installing windows-curses on Windows when it is missing.
+
+    A fresh clone on Windows has no curses module at all; fetching the wheel
+    once keeps the TUI startable without any separate setup step.
+    """
+    global curses
+    if curses is not None or not is_windows():
+        return curses
+    print('Модуль curses не найден — устанавливаю windows-curses (один раз)...',
+          file=sys.stderr)
+    if not install_windows_curses():
+        return None
+    try:
+        import curses as module
+    except ImportError:
+        return None
+    curses = module
+    return curses
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', help='manual server address; requires --no-discovery')
@@ -1355,7 +1377,7 @@ def main():
             usage.close()
 
     interactive = sys.stdout.isatty() and not args.once
-    if interactive and curses is None:
+    if interactive and ensure_curses() is None:
         print('Модуль curses не установлен. На Windows выполните: '
               'python -m pip install --user windows-curses', file=sys.stderr)
         return 1

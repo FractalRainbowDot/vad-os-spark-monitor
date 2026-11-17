@@ -13,7 +13,8 @@ tailnet через локальный клиент Tailscale и определя
 - Tailscale, выполненный вход и доступ к тому же tailnet, где находятся Spark.
 - SSH-доступ к Spark; по умолчанию пользователь `nvidia`.
 - Python 3.10+ с модулем `curses` — для Linux/Windows-варианта `.pyz`.
-  На Windows установщик ставит `windows-curses`.
+  На Windows `windows-curses` ставится автоматически установщиком или
+  лаунчером из репозитория.
 - Ключ LiteLLM с доступом к статистике.
 
 Проверка Python на Linux/macOS:
@@ -21,6 +22,23 @@ tailnet через локальный клиент Tailscale и определя
 ```bash
 python3 -c "import curses; print('OK')"
 ```
+
+## Сборки для каждой ОС
+
+В каждом релизе публикуются отдельные архивы, а установщики и автообновление
+выбирают нужный по системе:
+
+| Система | Asset | Как ставится |
+|---|---|---|
+| Windows 10/11 | `spark-monitor-windows.pyz` | `install.ps1` или `python spark-monitor-windows.pyz` |
+| Linux | `spark-monitor-linux.pyz` | `install.sh` |
+| macOS с Python 3.10+ | `spark-monitor-macos.pyz` | `install.sh` |
+| macOS Apple Silicon без Python | `VAD-OS-Spark-Monitor-macOS-Apple-Silicon.zip` | распаковать и запустить `Start Spark Monitor.command` |
+| любая ОС | `spark-monitor.pyz` | универсальный архив, остаётся для старых установок |
+
+Имя установленного файла всегда `spark-monitor.pyz`, поэтому обновление
+заменяет его на месте и не трогает `.env`. Каждый архив содержит
+`build-info.json` с платформой и версией сборки.
 
 ## Установка одной командой
 
@@ -64,9 +82,11 @@ spark-monitor
 irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.ps1 | iex
 ```
 
-Установщик проверяет Python, ставит `windows-curses`, проверяет SHA-256 и создаёт
-команду `spark-monitor`. Нужны OpenSSH Client, Tailscale и SSH-ключ, разрешённый
-на Spark. Подробности — в [`README-Windows.md`](README-Windows.md).
+Установщик проверяет Python, ставит `windows-curses`, скачивает
+`spark-monitor-windows.pyz`, проверяет SHA-256 и создаёт команду
+`spark-monitor`. Нужны OpenSSH Client, Tailscale и SSH-ключ, разрешённый
+на Spark. Если в релизе нет windows-сборки, берётся универсальный
+`spark-monitor.pyz`. Подробности — в [`README-Windows.md`](README-Windows.md).
 
 После установки:
 
@@ -74,6 +94,14 @@ irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/mai
 spark-monitor --save-key
 spark-monitor
 ```
+
+Если репозиторий уже склонирован, ставить ничего не нужно — запустите из его
+папки `.\run.cmd`: лаунчер сам поставит `windows-curses` (список зависимостей —
+`requirements.txt`) и запустит монитор из исходников. Ключ сохраняется командой
+`.\run.ps1 --save-key`. Монитор из исходников автообновление не проверяет —
+обновляется только файл `.pyz`, поэтому для постоянного использования лучше
+поставить релиз установщиком выше. Подробности — в
+[`README-Windows.md`](README-Windows.md).
 
 ## Установка и запуск
 
@@ -134,9 +162,11 @@ python3 spark-monitor.pyz --no-discovery --host SERVER_IP --remote-port 8000
 ## Обновления
 
 При запуске монитор проверяет GitHub Releases. Если вышла новая версия, он
-скачивает `spark-monitor.pyz`, проверяет SHA-256 и заменяет файл, сохраняя
-резервную копию `.prev`. Ключ и `.env` не затрагиваются. Для применения
-обновления перезапустите монитор или нажмите `[r]` в открытом окне.
+скачивает сборку для своей системы (`spark-monitor-windows.pyz`,
+`spark-monitor-linux.pyz` или `spark-monitor-macos.pyz`), проверяет SHA-256 и
+заменяет локальный файл `spark-monitor.pyz`, сохраняя резервную копию `.prev`.
+Ключ и `.env` не затрагиваются. Для применения обновления перезапустите монитор
+или нажмите `[r]` в открытом окне.
 
 Рядом с номером версии появляется значок `↑ vX.Y.Z` и строка с просьбой
 перезапустить монитор. Значок остаётся видимым до перезапуска, поэтому

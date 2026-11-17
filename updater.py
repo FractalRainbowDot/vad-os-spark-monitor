@@ -10,17 +10,31 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = '1.8.0'
+VERSION = '1.8.1'
 REPO = 'FractalRainbowDot/vad-os-spark-monitor'
-ASSET = 'spark-monitor.pyz'
+# One archive per operating system, selected at download time.  The universal
+# name stays published so older installations keep updating.
+ASSETS = {
+    'win32': 'spark-monitor-windows.pyz',
+    'linux': 'spark-monitor-linux.pyz',
+    'darwin': 'spark-monitor-macos.pyz',
+}
+UNIVERSAL_ASSET = 'spark-monitor.pyz'
 MAX_DOWNLOAD = 16 * 1024 * 1024
 USER_AGENT = 'VAD-OS-Spark-Monitor/' + VERSION
+
+
+def platform_asset(platform=None):
+    """Release asset for this OS; unknown platforms use the universal archive."""
+    platform = sys.platform if platform is None else platform
+    return ASSETS.get(platform, UNIVERSAL_ASSET)
 
 
 def version_tuple(text):
@@ -44,33 +58,43 @@ def _open(url, timeout):
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def _release(repo, timeout):
+def _release(repo, timeout, asset=None):
     with _open(f'https://api.github.com/repos/{repo}/releases/latest', timeout) as response:
         payload = json.loads(response.read(1000000))
     if not isinstance(payload, dict):
         raise ValueError('GitHub: неожиданный ответ')
     assets = {item.get('name'): item for item in payload.get('assets') or []
               if isinstance(item, dict)}
-    asset = assets.get(ASSET)
-    if asset is None or not isinstance(asset.get('browser_download_url'), str):
-        raise ValueError('GitHub: релиз не содержит spark-monitor.pyz')
+    names = [asset] if asset else [UNIVERSAL_ASSET]
+    if UNIVERSAL_ASSET not in names:
+        # A release without the OS-specific archive still keeps older clients
+        # and unusual platforms up to date.
+        names.append(UNIVERSAL_ASSET)
+    selected = None
+    for name in names:
+        candidate = assets.get(name)
+        if candidate is not None and isinstance(candidate.get('browser_download_url'), str):
+            selected = candidate
+            break
+    if selected is None:
+        raise ValueError('GitHub: релиз не содержит сборку для этой системы')
     checksum = None
-    digest = str(asset.get('digest') or '')
+    digest = str(selected.get('digest') or '')
     if digest.startswith('sha256:'):
         checksum = digest.split(':', 1)[1]
-    checksum_asset = assets.get(ASSET + '.sha256')
+    checksum_asset = assets.get(selected['name'] + '.sha256')
     if checksum_asset is None and checksum is not None:
-        return payload, asset, checksum
+        return payload, selected, checksum
     if checksum_asset is None:
-        return payload, asset, None
+        return payload, selected, None
     with _open(checksum_asset['browser_download_url'], timeout) as response:
         text = response.read(4096).decode('utf-8', 'replace')
     published = text.split()[0].lower() if text.split() else ''
     if len(published) != 64 or any(c not in '0123456789abcdef' for c in published):
-        return payload, asset, None
+        return payload, selected, None
     if checksum is not None and checksum.lower() != published:
-        return payload, asset, None
-    return payload, asset, published
+        return payload, selected, None
+    return payload, selected, published
 
 
 def _download(asset, checksum, directory, timeout):
@@ -126,21 +150,21 @@ def install(archive, candidate):
     return backup
 
 
-def perform_update(archive=None, current=VERSION, repo=REPO, timeout=6):
+def perform_update(archive=None, current=VERSION, repo=REPO, timeout=6, asset=None):
     """Return {'status': current|updated|available|unavailable|error, ...}."""
     if archive is None:
         return {'status': 'unavailable'}
     try:
-        payload, asset, checksum = _release(repo, timeout)
+        payload, selected, checksum = _release(repo, timeout, asset or platform_asset())
         remote = payload.get('tag_name')
         if not is_newer(remote, current):
             return {'status': 'current', 'version': current}
-        url = asset['browser_download_url']
+        url = selected['browser_download_url']
         if checksum is None:
             # Never replace a program without a verifiable checksum.
             return {'status': 'available', 'version': str(remote).lstrip('v'), 'url': url}
         directory = str(Path(archive).resolve().parent)
-        candidate = _download(asset, checksum, directory, timeout)
+        candidate = _download(selected, checksum, directory, timeout)
         try:
             install(archive, candidate)
         finally:

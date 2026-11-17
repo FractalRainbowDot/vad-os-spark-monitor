@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -63,6 +64,73 @@ class WindowsKeyTests(unittest.TestCase):
                  patch.object(monitor.shutil, 'which', return_value=None), \
                  patch.dict(monitor.os.environ, {'WINDIR': directory}):
                 self.assertEqual(monitor.ssh_binary(), str(ssh))
+
+
+class WindowsCursesBootstrapTests(unittest.TestCase):
+    def test_non_windows_is_not_touched(self):
+        with patch.object(platform_utils, 'is_windows', return_value=False), \
+             patch('subprocess.run') as run:
+            self.assertFalse(platform_utils.install_windows_curses())
+        run.assert_not_called()
+
+    def test_install_uses_the_user_site_outside_a_venv(self):
+        with patch.object(platform_utils, 'is_windows', return_value=True), \
+             patch.object(platform_utils, 'in_virtualenv', return_value=False), \
+             patch.object(platform_utils, 'curses_available', return_value=True), \
+             patch('subprocess.run') as run:
+            run.return_value = SimpleNamespace(returncode=0)
+            self.assertTrue(platform_utils.install_windows_curses())
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], platform_utils.sys.executable)
+        self.assertIn('windows-curses', command)
+        self.assertIn('--user', command)
+
+    def test_install_skips_user_flag_inside_a_venv(self):
+        with patch.object(platform_utils, 'is_windows', return_value=True), \
+             patch.object(platform_utils, 'in_virtualenv', return_value=True), \
+             patch.object(platform_utils, 'curses_available', return_value=True), \
+             patch('subprocess.run') as run:
+            run.return_value = SimpleNamespace(returncode=0)
+            self.assertTrue(platform_utils.install_windows_curses())
+        self.assertNotIn('--user', run.call_args.args[0])
+
+    def test_failed_pip_returns_false(self):
+        with patch.object(platform_utils, 'is_windows', return_value=True), \
+             patch.object(platform_utils, 'in_virtualenv', return_value=False), \
+             patch('subprocess.run') as run:
+            run.return_value = SimpleNamespace(returncode=1)
+            self.assertFalse(platform_utils.install_windows_curses())
+
+    def test_unusable_module_after_install_returns_false(self):
+        with patch.object(platform_utils, 'is_windows', return_value=True), \
+             patch.object(platform_utils, 'in_virtualenv', return_value=False), \
+             patch.object(platform_utils, 'curses_available', return_value=False), \
+             patch('subprocess.run') as run:
+            run.return_value = SimpleNamespace(returncode=0)
+            self.assertFalse(platform_utils.install_windows_curses())
+
+
+class EnsureCursesTests(unittest.TestCase):
+    def test_non_windows_does_not_try_to_install(self):
+        with patch.object(monitor, 'curses', None), \
+             patch.object(monitor, 'is_windows', return_value=False), \
+             patch.object(monitor, 'install_windows_curses') as install:
+            self.assertIsNone(monitor.ensure_curses())
+        install.assert_not_called()
+
+    def test_failed_install_keeps_the_module_missing(self):
+        with patch.object(monitor, 'curses', None), \
+             patch.object(monitor, 'is_windows', return_value=True), \
+             patch.object(monitor, 'install_windows_curses', return_value=False), \
+             patch.object(monitor.sys, 'stderr', new=io.StringIO()) as err:
+            self.assertIsNone(monitor.ensure_curses())
+        self.assertIn('windows-curses', err.getvalue())
+
+    def test_available_module_is_returned_without_pip(self):
+        with patch.object(monitor, 'curses', SimpleNamespace(name='curses')), \
+             patch.object(monitor, 'install_windows_curses') as install:
+            self.assertEqual(monitor.ensure_curses().name, 'curses')
+        install.assert_not_called()
 
 
 if __name__ == '__main__':
