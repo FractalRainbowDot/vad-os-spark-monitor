@@ -34,6 +34,7 @@ from banner import TITLE, title_banner
 from preferences import MAX_DISPLAY_NAME, load_preferences, save_preferences
 from themes import THEME_NAMES, apply_theme, normalize_theme
 from platform_utils import install_windows_curses, is_windows
+from ssh_setup import prepare_ssh
 
 
 SAMPLE = re.compile(
@@ -1253,6 +1254,17 @@ def ensure_curses():
     return curses
 
 
+def first_run_key(api_key):
+    """Ask only when no saved/environment key exists; never echo the secret."""
+    if api_key:
+        return api_key
+    print('Ключ LiteLLM: вставьте для статистики или нажмите Enter, чтобы пропустить.')
+    value = getpass.getpass('LiteLLM API key (скрытый ввод): ').strip()
+    if value:
+        save_api_key(value)
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', help='manual server address; requires --no-discovery')
@@ -1276,6 +1288,7 @@ def main():
     parser.add_argument('--once', action='store_true', help='print one snapshot and exit')
     parser.add_argument('--no-discovery', action='store_true', help='use only manually configured endpoints')
     parser.add_argument('--no-update-check', action='store_true', help='do not contact GitHub Releases')
+    parser.add_argument('--no-setup', action='store_true', help='skip interactive first-run setup')
     parser.add_argument('--check-update', action='store_true', help='check for updates, then exit')
     parser.add_argument('--version', action='store_true', help='print version')
     args = parser.parse_args()
@@ -1333,6 +1346,14 @@ def main():
     except ValueError as exc:
         print(f'Ошибка: {exc}', file=sys.stderr)
         return 1
+    if not args.once and not args.no_setup and sys.stdin.isatty() and sys.stdout.isatty():
+        if not prepare_ssh(hosts, args.user, ssh_binary()):
+            return 1
+        try:
+            api_key = first_run_key(api_key)
+        except (OSError, ValueError, EOFError, KeyboardInterrupt):
+            print('\nКлюч не сохранён.')
+            return 1
     if args.once and args.settings:
         cache, errors = {}, {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:

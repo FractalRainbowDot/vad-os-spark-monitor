@@ -52,7 +52,12 @@ $shortcut = $shell.CreateShortcut($target)
 $shortcut.TargetPath = $exe
 $shortcut.Arguments = $arguments
 $shortcut.WorkingDirectory = $root
-$shortcut.IconLocation = $exe + ',0'
+$icon = Join-Path $root 'assets\spark-monitor.ico'
+$shortcut.IconLocation = if (Test-Path -LiteralPath $icon) {
+    $icon + ',0'
+} else {
+    $exe + ',0'
+}
 $shortcut.Description = 'VAD-OS Spark Monitor'
 $shortcut.Save()
 

@@ -16,6 +16,25 @@ monitor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(monitor)
 
 
+class FirstRunKeyTests(unittest.TestCase):
+    def test_existing_key_never_prompts(self):
+        with patch.object(monitor.getpass, 'getpass') as prompt:
+            self.assertEqual(monitor.first_run_key('existing'), 'existing')
+        prompt.assert_not_called()
+
+    def test_missing_key_uses_hidden_input_and_is_saved(self):
+        with patch.object(monitor.getpass, 'getpass', return_value=' test-key '), \
+             patch.object(monitor, 'save_api_key') as save:
+            self.assertEqual(monitor.first_run_key(''), 'test-key')
+        save.assert_called_once_with('test-key')
+
+    def test_enter_skips_without_writing(self):
+        with patch.object(monitor.getpass, 'getpass', return_value=''), \
+             patch.object(monitor, 'save_api_key') as save:
+            self.assertEqual(monitor.first_run_key(''), '')
+        save.assert_not_called()
+
+
 class PlatformHelperTests(unittest.TestCase):
     def test_windows_ownership_check_does_not_use_getuid(self):
         with patch.object(platform_utils.os, 'name', 'nt'):

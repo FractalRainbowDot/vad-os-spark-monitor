@@ -19,7 +19,7 @@
 
    В каждый архив попадают только: `__main__.py`, `credentials.py`,
    `litellm_usage.py`, `discovery.py`, `hosts.py`, `settings.py`, `updater.py`,
-   `banner.py`, `preferences.py`, `platform_utils.py`, `themes.py`, `README.md`,
+   `banner.py`, `preferences.py`, `platform_utils.py`, `themes.py`, `ssh_setup.py`, `README.md`,
    `LICENSE` и `build-info.json` (платформа и версия сборки).
 3. Проверьте, что в сборке нет `.env`, ключей и адресов кластера.
 4. Закоммитьте файлы и создайте GitHub Release с тегом `vX.Y.Z`.
@@ -45,7 +45,7 @@ macOS не обновляются.
 
 ```bash
 mkdir -p build
-cp __main__.py credentials.py litellm_usage.py discovery.py hosts.py settings.py updater.py banner.py preferences.py platform_utils.py themes.py README.md LICENSE build/
+cp __main__.py credentials.py litellm_usage.py discovery.py hosts.py settings.py updater.py banner.py preferences.py platform_utils.py themes.py ssh_setup.py README.md LICENSE build/
 python3 -c "import zipapp; zipapp.create_archive('build', 'spark-monitor.pyz', interpreter='/usr/bin/env python3', compressed=True)"
 python3 -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path('spark-monitor.pyz').read_bytes()).hexdigest() + '  spark-monitor.pyz')" > spark-monitor.pyz.sha256
 ```

@@ -24,7 +24,7 @@ from updater import ASSETS, UNIVERSAL_ASSET, VERSION
 PACKAGE_FILES = (
     '__main__.py', 'credentials.py', 'litellm_usage.py', 'discovery.py', 'hosts.py',
     'settings.py', 'updater.py', 'banner.py', 'preferences.py', 'platform_utils.py',
-    'themes.py', 'README.md', 'LICENSE',
+    'themes.py', 'ssh_setup.py', 'README.md', 'LICENSE',
 )
 
 POSIX_INTERPRETER = '/usr/bin/env python3'
