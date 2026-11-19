@@ -706,6 +706,14 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             screen.keypad(True)
         except curses.error:
             pass
+        try:
+            wheel_events = (getattr(curses, 'BUTTON4_PRESSED', 0)
+                            | getattr(curses, 'BUTTON5_PRESSED', 0))
+            curses.mousemask(wheel_events)
+            curses.mouseinterval(0)
+        except (AttributeError, curses.error):
+            # Some terminal/curses builds support only keyboard input.
+            pass
         if curses.has_colors():
             curses.start_color()
             apply_theme(theme)
@@ -1005,6 +1013,19 @@ def run_dashboard(screen, args, models, hosts, http, usage):
             try:
                 raw_key = screen.get_wch()
             except curses.error:
+                continue
+            if raw_key == getattr(curses, 'KEY_MOUSE', None):
+                try:
+                    _, _, _, _, buttons = curses.getmouse()
+                except curses.error:
+                    continue
+                # Consume mouse events even over a popup, but don't scroll the
+                # document behind the menu or insert input into name editing.
+                if not menu_open:
+                    if buttons & getattr(curses, 'BUTTON4_PRESSED', 0):
+                        offset = max(0, offset - 3)
+                    elif buttons & getattr(curses, 'BUTTON5_PRESSED', 0):
+                        offset += 3
                 continue
             key = normalize_key(raw_key)
             if menu_open:

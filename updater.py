@@ -17,7 +17,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = '1.8.2'
+VERSION = '1.8.3'
 REPO = 'FractalRainbowDot/vad-os-spark-monitor'
 # One archive per operating system, selected at download time.  The universal
 # name stays published so older installations keep updating.
