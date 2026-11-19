@@ -13,7 +13,23 @@ LiteLLM. Находит машины через Tailscale, не требует �
 
 ## Windows 10/11
 
-### Из репозитория, с ярлыком
+### Установка одной командой (с ярлыком)
+
+Нужен установленный Python 3.10+ (при установке отметьте **Add Python to PATH**).
+Git не нужен. Откройте **PowerShell** и вставьте:
+
+```powershell
+irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.ps1 | iex
+```
+
+Установщик скачает Windows-сборку, установит `windows-curses` и создаст
+**VAD-OS Spark Monitor** с иконкой на рабочем столе. Откройте ярлык:
+настройка SSH и ввод ключа LiteLLM пройдут в том же окне.
+Программа хранится в `%LOCALAPPDATA%\vad-os-spark-monitor`.
+Повторный запуск команды обновляет программу и ярлык, сохраняя ключ и настройки.
+Если загрузка иконки недоступна, ярлык получит стандартную иконку терминала.
+
+### Альтернатива: из репозитория
 
 Установите Python 3.10+ (отметьте **Add Python to PATH**) и Git.
 Откройте **PowerShell** и выполните:
@@ -28,17 +44,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\make-shortcut.ps1
 Откройте ярлык — зависимость `windows-curses` установится автоматически.
 Не перемещайте папку репозитория после создания ярлыка.
 
-### Без Git, установка командой
-
-Нужен установленный Python 3.10+. В **PowerShell**:
-
-```powershell
-irm https://raw.githubusercontent.com/FractalRainbowDot/vad-os-spark-monitor/main/install.ps1 | iex
-spark-monitor
-```
-
-Этот способ создаёт команду `spark-monitor`, **не ярлык**.
-Если команда не найдена, откройте новый терминал.
+Также доступна команда `spark-monitor`. Если команда не найдена сразу после
+установки, откройте новый терминал.
 
 ## macOS
 

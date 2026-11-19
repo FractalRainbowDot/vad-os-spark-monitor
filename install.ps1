@@ -7,6 +7,7 @@
 #   SPARK_MONITOR_HOME          data directory (default: %LOCALAPPDATA%\vad-os-spark-monitor)
 #   SPARK_MONITOR_BIN           launcher directory (default: <data>\bin)
 #   SPARK_MONITOR_NO_PATH_UPDATE=1 to skip updating the user PATH
+#   SPARK_MONITOR_DESKTOP       shortcut directory (default: Windows Desktop)
 #   PYTHON                      Python executable (default: py -3 / python)
 
 [CmdletBinding()]
@@ -227,6 +228,52 @@ exit /b %errorlevel%
 '@
     Set-Content -LiteralPath $cmdLauncher -Value $cmdContent -Encoding ASCII
 
+    # The icon is cosmetic: an unavailable asset must not prevent installation.
+    $icon = Join-Path $DataDir 'spark-monitor.ico'
+    try {
+        $iconDownload = Join-Path $tmp 'spark-monitor.ico'
+        Invoke-WebRequest -UseBasicParsing -Uri "$Root/spark-monitor.ico" -OutFile $iconDownload
+        $header = [IO.File]::ReadAllBytes($iconDownload)
+        if ($header.Length -lt 6 -or $header[0] -ne 0 -or $header[1] -ne 0 -or
+            $header[2] -ne 1 -or $header[3] -ne 0) {
+            throw 'Invalid ICO header.'
+        }
+        Copy-Item -LiteralPath $iconDownload -Destination $icon -Force
+    } catch {
+        Write-Warning 'Could not download the shortcut icon; using the terminal icon instead.'
+    }
+
+    $desktop = if ($env:SPARK_MONITOR_DESKTOP) {
+        $env:SPARK_MONITOR_DESKTOP
+    } else {
+        [Environment]::GetFolderPath('Desktop')
+    }
+    if (-not $desktop) {
+        Fail 'Windows Desktop directory could not be located.'
+    }
+    New-Item -ItemType Directory -Path $desktop -Force | Out-Null
+    $shortcutPath = Join-Path $desktop 'VAD-OS Spark Monitor.lnk'
+    $terminal = Get-Command wt -ErrorAction SilentlyContinue
+    $powershellExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $launchArguments = '-NoProfile -NoExit -ExecutionPolicy Bypass -File "' + $psLauncher + '"'
+    $shortcutShell = New-Object -ComObject WScript.Shell
+    $shortcut = $shortcutShell.CreateShortcut($shortcutPath)
+    if ($terminal) {
+        $shortcut.TargetPath = $terminal.Source
+        $shortcut.Arguments = '-d "' + $DataDir + '" powershell.exe ' + $launchArguments
+    } else {
+        $shortcut.TargetPath = $powershellExe
+        $shortcut.Arguments = $launchArguments
+    }
+    $shortcut.WorkingDirectory = $DataDir
+    $shortcut.Description = 'VAD-OS Spark Monitor'
+    $shortcut.IconLocation = if (Test-Path -LiteralPath $icon) {
+        $icon + ',0'
+    } else {
+        $powershellExe + ',0'
+    }
+    $shortcut.Save()
+
     if (-not $NoPathUpdate) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         if ($null -eq $userPath) {
@@ -264,10 +311,12 @@ exit /b %errorlevel%
         Write-Host "Version: $version"
     }
     Write-Host "Launcher: $cmdLauncher"
+    Write-Host "Desktop shortcut: $shortcutPath"
     Write-Host ''
     Write-Host 'Next steps:'
-    Write-Host '  spark-monitor --save-key'
-    Write-Host '  spark-monitor'
+    Write-Host '  Open VAD-OS Spark Monitor on your Desktop.'
+    Write-Host '  First launch offers SSH setup and hidden LiteLLM key input.'
+    Write-Host '  Or run: spark-monitor'
     Write-Host 'If the command is not found, open a new PowerShell window.'
 } finally {
     if (Test-Path -LiteralPath $tmp) {
