@@ -48,7 +48,7 @@ class DashboardScrollTests(unittest.TestCase):
             stack.enter_context(patch.object(curses, 'getmouse',
                                              return_value=(0, 5, 10, 0, mouse_state)))
             monitor.run_dashboard(screen, args, [], [], None, usage)
-            mousemask.assert_called_once_with(curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED)
+            mousemask.assert_called_once_with(monitor.mouse_wheel_mask())
         return frames
 
     def first_row(self, frame):

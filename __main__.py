@@ -680,6 +680,17 @@ def table_rule_spans(line):
     return [(index, index + 1) for index, char in enumerate(line) if char == '│']
 
 
+def mouse_wheel_mask():
+    # PDCurses filters wheel directions in wgetch() unless its native
+    # MOUSE_WHEEL_SCROLL bit is enabled. Python does not export that bit,
+    # but ALL_MOUSE_EVENTS includes it. BUTTON4/5 alone yield bstate == 0.
+    # Do not use that extra bit on ncurses: it means something else there.
+    if os.name == 'nt':
+        return curses.ALL_MOUSE_EVENTS
+    return (getattr(curses, 'BUTTON4_PRESSED', 0)
+            | getattr(curses, 'BUTTON5_PRESSED', 0))
+
+
 def run_dashboard(screen, args, models, hosts, http, usage):
     try:
         preferences = load_preferences()
@@ -707,9 +718,7 @@ def run_dashboard(screen, args, models, hosts, http, usage):
         except curses.error:
             pass
         try:
-            wheel_events = (getattr(curses, 'BUTTON4_PRESSED', 0)
-                            | getattr(curses, 'BUTTON5_PRESSED', 0))
-            curses.mousemask(wheel_events)
+            curses.mousemask(mouse_wheel_mask())
             curses.mouseinterval(0)
         except (AttributeError, curses.error):
             # Some terminal/curses builds support only keyboard input.
